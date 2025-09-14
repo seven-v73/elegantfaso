@@ -1,0 +1,19 @@
+{
+  "@@locale": "fr",
+  "settings": "Paramètres",
+  "signOut": "Déconnexion",
+  "signOutConfirmation": "Êtes-vous sûr de vouloir vous déconnecter?",
+  "cancel": "Annuler",
+  "user": "Utilisateur",
+  "verifyEmail": "Vérifier l'email",
+  "verificationEmailSent": "Email de vérification envoyé!",
+  "errorSendingVerificationEmail": "Erreur lors de l'envoi de l'email de vérification",
+  "preferences": "Préférences",
+  "notifications": "Notifications",
+  "darkMode": "Mode sombre",
+  "language": "Langue",
+  "account": "Compte",
+  "security": "Sécurité",
+  "helpAndSupport": "Aide et support",
+  "about": "À propos"
+}

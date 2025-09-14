@@ -1,0 +1,19 @@
+{
+  "@@locale": "en",
+  "settings": "Settings",
+  "signOut": "Sign Out",
+  "signOutConfirmation": "Are you sure you want to sign out?",
+  "cancel": "Cancel",
+  "user": "User",
+  "verifyEmail": "Verify Email",
+  "verificationEmailSent": "Verification email sent!",
+  "errorSendingVerificationEmail": "Error sending verification email",
+  "preferences": "Preferences",
+  "notifications": "Notifications",
+  "darkMode": "Dark Mode",
+  "language": "Language",
+  "account": "Account",
+  "security": "Security",
+  "helpAndSupport": "Help & Support",
+  "about": "About"
+}

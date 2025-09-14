@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Définition des fonctions utilitaires
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isAdmin() {
+      return getRole() == 'admin';
+    }
+    
+    function isCreator() {
+      return getRole() == 'createur';
+    }
+    
+    function isShop() {
+      return getRole() == 'boutique';
+    }
+    
+    function isClient() {
+      return getRole() == 'client';
+    }
+    
+    function isUser(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Règles pour la collection 'users'
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isUser(userId) || isAdmin());
+      allow create: if request.auth != null;
+      allow update: if isUser(userId) || isAdmin();
+      allow delete: if isAdmin();
+      
+      // Validation des données utilisateur
+      allow write: if (
+        request.resource.data.keys().hasAll(['email', 'role', 'createdAt']) &&
+        request.resource.data.role is string &&
+        request.resource.data.role in ['client', 'createur', 'boutique', 'admin'] &&
+        request.resource.data.email is string
+      );
+    }
+    
+    // Règles pour la collection 'createurs'
+    match /createurs/{creatorId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && getRole() == 'createur' && isUser(creatorId);
+      allow update: if isUser(creatorId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Règles pour la collection 'boutiques'
+    match /boutiques/{shopId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && getRole() == 'boutique' && isUser(shopId);
+      allow update: if isUser(shopId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Règles pour la collection 'clients'
+    match /clients/{clientId} {
+      allow read: if isSignedIn() && (isUser(clientId) || isAdmin());
+      allow create: if isSignedIn() && getRole() == 'client' && isUser(clientId);
+      allow update: if isUser(clientId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Règles pour les données publiques (ex: produits, catalogues)
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow create: if isCreator() || isShop() || isAdmin();
+      allow update: if isCreator() || isShop() || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Règles pour les commandes
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (isClient() || isAdmin());
+      allow create: if isClient();
+      allow update: if isShop() || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Règles pour les messages/chat
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && isParticipant(chatId);
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+    
+    function isParticipant(chatId) {
+      return get(/databases/$(database)/documents/chats/$(chatId)).data.participants.hasAny([request.auth.uid]);
+    }
+  }
+}
