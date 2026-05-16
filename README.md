@@ -117,28 +117,6 @@ Exemples :
 - une boutique peut gérer produits, commandes et visibilité;
 - l'admin garde les actions de modération.
 
-### Admin Par Défaut
-
-Un bootstrap admin contrôlé par `.env` permet de créer ou mettre à jour le premier compte de gestion :
-
-```text
-ENABLE_DEFAULT_ADMIN_BOOTSTRAP=true
-DEFAULT_ADMIN_EMAIL=admin@elegantstyle.app
-DEFAULT_ADMIN_PASSWORD=<mot_de_passe_fort>
-DEFAULT_ADMIN_NAME=Administrateur ElegantStyle
-```
-
-Quand l'option est active, l'écran de connexion affiche `Initialisation admin`.
-Le bouton crée le compte Firebase Auth si nécessaire, puis écrit `users/{uid}` avec :
-
-```text
-role: admin
-activeRole: admin
-roles: [client, admin]
-roleFlags.isAdmin: true
-```
-
-Après la première connexion, change l'email/mot de passe dans Firebase Auth ou depuis l'espace de gestion, puis mets `ENABLE_DEFAULT_ADMIN_BOOTSTRAP=false` pour masquer le bouton.
 
 ## Design System
 
