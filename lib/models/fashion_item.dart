@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../services/preferences/currency_service.dart';
+
 class FashionItem {
   final String id;
   final String title;
@@ -14,6 +16,7 @@ class FashionItem {
   final List<String> occasions;
   final String description;
   final double price;
+  final String currency;
   final List<String>? availableSizes;
   final List<String>? availableColors;
   final double? matchingScore;
@@ -40,6 +43,7 @@ class FashionItem {
     required this.occasions,
     required this.description,
     required this.price,
+    this.currency = CurrencyService.defaultCode,
     this.availableSizes,
     this.availableColors,
     this.matchingScore,
@@ -69,6 +73,7 @@ class FashionItem {
       occasions: List<String>.from(data['occasions'] ?? []),
       description: data['description'] ?? '',
       price: data['price']?.toDouble() ?? 0.0,
+      currency: data['currency']?.toString() ?? CurrencyService.defaultCode,
       availableSizes:
           data['availableSizes'] != null
               ? List<String>.from(data['availableSizes'])
@@ -95,5 +100,5 @@ class FashionItem {
     );
   }
 
-  String formattedPrice() => '${price.toStringAsFixed(0)} FCFA';
+  String formattedPrice() => CurrencyService.format(price, code: currency);
 }

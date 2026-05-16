@@ -1,93 +1,106 @@
 import 'package:flutter/material.dart';
-import 'style_quiz.dart';
+
+import '../../../../../design/ecommerce_widgets.dart';
+import '../../../../../design/modern_design_system.dart';
 import 'community_screen.dart';
+import 'style_quiz.dart';
 
 class StyleAdvisorSection extends StatelessWidget {
   const StyleAdvisorSection({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(12),
+    return AppCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFAB47BC), Color(0xFF5C6BC0)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(15),
-      ),
+      elevated: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.psychology, color: Colors.white, size: 28),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: ModernColors.creator.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.checkroom_rounded,
+                  color: ModernColors.creator,
+                  size: 24,
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Conseiller Style Personnel',
+                    Text(
+                      'Découvrir mon style',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: ModernColors.ink,
                         fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const Text(
-                      'Obtenez des conseils personnalisés',
-                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    SizedBox(height: 4),
+                    Text(
+                      'Quelques choix simples pour révéler couleurs, usages et envies.',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: ModernColors.inkSoft,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
+                child: FilledButton.icon(
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => StyleQuizScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => const StyleQuizScreen(),
+                      ),
                     );
                   },
-                  icon: const Icon(Icons.quiz),
-                  label: const Text('Quiz Style'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.purple,
-                  ),
+                  icon: const Icon(Icons.quiz_rounded, size: 18),
+                  label: const Text('Commencer'),
                 ),
               ),
-
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => CommunityScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.chat),
-                  label: const Text('Espace Communauté'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.purple,
+                child: FilledButton.tonalIcon(
+                  onPressed: () => openCommunityScreen(context),
+                  icon: const Icon(Icons.forum_rounded, size: 18),
+                  label: const Text(
+                    'Communauté',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
-
             ],
           ),
         ],
       ),
     );
   }
+}
+
+void openCommunityScreen(BuildContext context) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => const CommunityScreen()),
+  );
 }

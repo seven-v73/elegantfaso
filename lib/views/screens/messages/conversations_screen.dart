@@ -4,12 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:flutter/services.dart';
+import '../../../design/app_icons.dart';
 import 'chat_service.dart';
 import 'user_model.dart';
 import 'chat_screen.dart';
 import 'message_model.dart';
-import 'product_model.dart';
+import '../../../models/messages/conversation_context.dart';
+part 'conversation_list_item.dart';
 
 class ConversationsScreen extends StatefulWidget {
   final UserModel currentUser;
@@ -25,6 +26,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   final TextEditingController _searchController = TextEditingController();
   late Stream<QuerySnapshot> _conversationsStream;
   String _searchQuery = '';
+  String _selectedFilter = 'Tous';
   bool _isLoading = false;
   final Map<String, UserModel> _userCache = {};
 
@@ -36,7 +38,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   void _loadConversations() {
     setState(() => _isLoading = true);
-    _conversationsStream = _chatService.streamConversations(widget.currentUser.id);
+    _conversationsStream = _chatService.streamConversations(
+      widget.currentUser.id,
+    );
     setState(() => _isLoading = false);
   }
 
@@ -46,10 +50,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     }
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('utilisateurs')
-          .doc(userId)
-          .get();
+      final doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .get();
 
       if (doc.exists) {
         final user = UserModel.fromDocument(doc);
@@ -68,7 +73,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
-        title: const Text('Conversations', style: TextStyle(color: Colors.black)),
+        title: const Text(
+          'Conversations',
+          style: TextStyle(color: Colors.black),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.black),
@@ -80,6 +88,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       body: Column(
         children: [
           _buildSearchBar(),
+          _buildFilterRail(),
           Expanded(
             child: Container(
               decoration: const BoxDecoration(
@@ -97,7 +106,12 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   }
 
                   if (snapshot.hasError) {
-                    return Center(child: Text('Erreur: ${snapshot.error}'));
+                    debugPrint(
+                      'Erreur chargement conversations: ${snapshot.error}',
+                    );
+                    return const Center(
+                      child: Text('Conversations indisponibles.'),
+                    );
                   }
 
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -105,8 +119,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   }
 
                   final conversations = _filterConversations(
-                      snapshot.data!.docs,
-                      _searchQuery
+                    snapshot.data!.docs,
+                    _searchQuery,
                   );
 
                   return RefreshIndicator(
@@ -114,7 +128,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     child: ListView.separated(
                       padding: const EdgeInsets.only(top: 16),
                       itemCount: conversations.length,
-                      separatorBuilder: (context, index) => const Divider(height: 0, indent: 72),
+                      separatorBuilder:
+                          (context, index) =>
+                              const Divider(height: 0, indent: 72),
                       itemBuilder: (context, index) {
                         return ConversationListItem(
                           doc: conversations[index],
@@ -132,12 +148,77 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: _startNewConversation,
         backgroundColor: const Color(0xFF6C56F9),
-        child: const Icon(Icons.message, color: Colors.white),
         tooltip: 'Nouvelle conversation',
+        child: const Icon(Icons.message, color: Colors.white),
       ),
     );
+  }
+
+  Widget _buildFilterRail() {
+    final filters = _filtersForRole(widget.currentUser.role);
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = filters[index];
+          final selected = filter == _selectedFilter;
+          return ChoiceChip(
+            label: Text(filter),
+            selected: selected,
+            showCheckmark: false,
+            selectedColor: const Color(0xFF0F766E),
+            backgroundColor: Colors.white,
+            side: BorderSide(
+              color: selected ? const Color(0xFF0F766E) : Colors.grey.shade200,
+            ),
+            labelStyle: TextStyle(
+              color: selected ? Colors.white : Colors.grey[700],
+              fontWeight: FontWeight.w800,
+            ),
+            onSelected: (_) => setState(() => _selectedFilter = filter),
+          );
+        },
+      ),
+    );
+  }
+
+  List<String> _filtersForRole(String role) {
+    if (role == 'boutique') {
+      return const [
+        'Tous',
+        'Commandes',
+        'Produits',
+        'Clients',
+        'Paiements',
+        'RDV',
+      ];
+    }
+    if (role == 'createur') {
+      return const [
+        'Tous',
+        'Demandes',
+        'RDV',
+        'Créations',
+        'Mesures',
+        'Archives',
+      ];
+    }
+    return const [
+      'Tous',
+      'Commandes',
+      'Vide-dressing',
+      'Créateurs',
+      'Boutiques',
+      'RDV',
+      'Support',
+    ];
   }
 
   Widget _buildSearchBar() {
@@ -149,10 +230,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 6,
               offset: const Offset(0, 2),
-            )
+            ),
           ],
         ),
         child: TextField(
@@ -160,17 +241,21 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           decoration: InputDecoration(
             hintText: 'Rechercher des conversations...',
             prefixIcon: const Icon(Icons.search, color: Colors.grey),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-              icon: const Icon(Icons.clear, color: Colors.grey),
-              onPressed: () {
-                _searchController.clear();
-                setState(() => _searchQuery = '');
-              },
-            )
-                : null,
+            suffixIcon:
+                _searchController.text.isNotEmpty
+                    ? IconButton(
+                      icon: const Icon(Icons.clear, color: Colors.grey),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    )
+                    : null,
             border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 16,
+              horizontal: 20,
+            ),
           ),
           onChanged: (value) => setState(() => _searchQuery = value),
         ),
@@ -179,22 +264,47 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   }
 
   List<DocumentSnapshot> _filterConversations(
-      List<DocumentSnapshot> docs,
-      String query
-      ) {
-    if (query.isEmpty) return docs;
+    List<DocumentSnapshot> docs,
+    String query,
+  ) {
+    final visibleDocs =
+        docs.where((doc) {
+          final data = Map<String, dynamic>.from(
+            (doc.data() as Map?) ?? const <String, dynamic>{},
+          );
+          final archivedFor = _stringList(data['archivedFor']);
+          final isArchived = archivedFor.contains(widget.currentUser.id);
+          if (_selectedFilter == 'Archives') return isArchived;
+          if (isArchived) return false;
+
+          final participantRoles = Map<String, dynamic>.from(
+            data['participantRoles'] ?? const {},
+          );
+          final currentRole =
+              participantRoles[widget.currentUser.id]?.toString() ??
+              widget.currentUser.role;
+          if (currentRole != widget.currentUser.role) return false;
+
+          final contextType = data['contextType']?.toString() ?? 'general';
+          return _matchesFilter(contextType, participantRoles);
+        }).toList();
+
+    if (query.isEmpty) return visibleDocs;
 
     final queryLower = query.toLowerCase();
-    return docs.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
+    return visibleDocs.where((doc) {
+      final data = Map<String, dynamic>.from(
+        (doc.data() as Map?) ?? const <String, dynamic>{},
+      );
       final lastMessage = data['dernierMessage'] as String? ?? '';
-      if (lastMessage.toLowerCase().contains(queryLower)) {
+      final contextTitle = data['contextTitle']?.toString() ?? '';
+      if ('$lastMessage $contextTitle'.toLowerCase().contains(queryLower)) {
         return true;
       }
 
-      final participants = List<String>.from(data['participants']);
+      final participants = _stringList(data['participants']);
       final otherUserId = participants.firstWhere(
-            (id) => id != widget.currentUser.id,
+        (id) => id != widget.currentUser.id,
         orElse: () => '',
       );
 
@@ -204,6 +314,38 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       }
       return false;
     }).toList();
+  }
+
+  static List<String> _stringList(dynamic value) {
+    if (value is Iterable) return value.map((item) => item.toString()).toList();
+    return const [];
+  }
+
+  bool _matchesFilter(
+    String contextType,
+    Map<String, dynamic> participantRoles,
+  ) {
+    if (_selectedFilter == 'Tous' || _selectedFilter == 'Archives') return true;
+    final otherRole =
+        participantRoles.entries
+            .where((entry) => entry.key != widget.currentUser.id)
+            .map((entry) => entry.value.toString())
+            .firstOrNull;
+    return switch (_selectedFilter) {
+      'Commandes' => contextType == ConversationContextTypes.order,
+      'Produits' => contextType == ConversationContextTypes.product,
+      'Vide-dressing' => contextType == ConversationContextTypes.secondhand,
+      'Paiements' => contextType == ConversationContextTypes.order,
+      'RDV' => contextType == ConversationContextTypes.appointment,
+      'Créations' ||
+      'Demandes' => contextType == ConversationContextTypes.creation,
+      'Mesures' => contextType == ConversationContextTypes.measurement,
+      'Support' => contextType == ConversationContextTypes.support,
+      'Créateurs' => otherRole == 'createur',
+      'Boutiques' => otherRole == 'boutique',
+      'Clients' => otherRole == 'client',
+      _ => true,
+    };
   }
 
   Widget _buildLoadingList() {
@@ -265,9 +407,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             Text(
               'Commencez une nouvelle conversation avec vos contacts',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
@@ -275,7 +417,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6C56F9),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(24),
                 ),
@@ -289,38 +434,48 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   }
 
   Future<void> _startNewConversation() async {
-    showDialog(
+    final target = await showModalBottomSheet<_ConversationTarget>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nouvelle conversation'),
-        content: const Text('Sélectionnez un utilisateur pour démarrer une nouvelle conversation'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO: Naviguer vers l'écran de sélection des utilisateurs
-            },
-            child: const Text('Continuer'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => _NewConversationSheet(currentUser: widget.currentUser),
+    );
+    if (target == null || !mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => ChatScreen(
+              utilisateurCourant: widget.currentUser,
+              autreUtilisateur: target.user,
+              currentRole: widget.currentUser.role,
+              otherRole: target.role,
+              conversationContext: const ConversationContext(
+                type: ConversationContextTypes.general,
+                title: 'Nouvelle discussion',
+              ),
+            ),
       ),
     );
   }
 
   Future<void> _deleteConversation(String conversationId) async {
     try {
-      await _chatService.effacerHistoriqueChat(conversationId);
+      await _chatService.archiverConversation(
+        conversationId,
+        widget.currentUser.id,
+      );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Conversation supprimée'),
+          content: Text('Conversation archivée'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Échec de la suppression: $e'),
@@ -331,192 +486,300 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   }
 }
 
-class ConversationListItem extends StatefulWidget {
-  final DocumentSnapshot doc;
-  final UserModel currentUser;
-  final Function(String) onDelete;
-  final Future<UserModel?> Function(String) getUser;
+class _ConversationTarget {
+  const _ConversationTarget({required this.user, required this.role});
 
-  const ConversationListItem({
-    super.key,
-    required this.doc,
-    required this.currentUser,
-    required this.onDelete,
-    required this.getUser,
-  });
-
-  @override
-  State<ConversationListItem> createState() => _ConversationListItemState();
+  final UserModel user;
+  final String role;
 }
 
-class _ConversationListItemState extends State<ConversationListItem> {
-  late Map<String, dynamic> _data;
-  late String _otherUserId;
-  UserModel? _otherUser;
-  bool _isLoadingUser = true;
-  bool _isOnline = false;
-  StreamSubscription<DocumentSnapshot>? _userStatusSubscription;
+class _NewConversationSheet extends StatefulWidget {
+  const _NewConversationSheet({required this.currentUser});
+
+  final UserModel currentUser;
+
+  @override
+  State<_NewConversationSheet> createState() => _NewConversationSheetState();
+}
+
+class _NewConversationSheetState extends State<_NewConversationSheet> {
+  final _searchController = TextEditingController();
+  late final Future<QuerySnapshot<Map<String, dynamic>>> _usersFuture;
+  String _query = '';
 
   @override
   void initState() {
     super.initState();
-    _loadConversationData();
+    _usersFuture =
+        FirebaseFirestore.instance.collection('users').limit(120).get();
   }
 
   @override
   void dispose() {
-    _userStatusSubscription?.cancel();
+    _searchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadConversationData() async {
-    _data = widget.doc.data() as Map<String, dynamic>;
-    final participants = List<String>.from(_data['participants']);
-    _otherUserId = participants.firstWhere(
-          (id) => id != widget.currentUser.id,
-      orElse: () => '',
-    );
-
-    if (_otherUserId.isNotEmpty) {
-      _otherUser = await widget.getUser(_otherUserId);
-
-      if (_otherUser != null) {
-        // Écouter le statut en ligne en temps réel
-        _userStatusSubscription = FirebaseFirestore.instance
-            .collection('utilisateurs')
-            .doc(_otherUserId)
-            .snapshots()
-            .listen((snapshot) {
-          if (mounted) {
-            setState(() {
-              _isOnline = snapshot.get('isOnline') ?? false;
-            });
-          }
-        });
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _isLoadingUser = false;
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingUser) {
-      return _buildLoadingItem();
-    }
-
-    if (_otherUser == null) {
-      return _buildUnknownUserItem();
-    }
-
-    final unreadCount = (_data['compteurNonLu'] as Map<String, dynamic>)
-    [widget.currentUser.id] as int? ?? 0;
-
-    final lastMessage = _data['dernierMessage'] ?? '';
-    final lastMessageType = TypeMessage.values.firstWhere(
-          (e) => e.toString().split('.').last == (_data['typeDernierMessage'] ?? 'texte'),
-      orElse: () => TypeMessage.texte,
-    );
-
-    final timestamp = (_data['horodatageDernierMessage'] as Timestamp?)?.toDate() ?? DateTime.now();
-
-    return Dismissible(
-      key: Key(widget.doc.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        color: Colors.red,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.delete, color: Colors.white, size: 28),
-      ),
-      confirmDismiss: (direction) => _confirmDeletion(),
-      child: InkWell(
-        onTap: _openChatScreen,
-        onLongPress: _showConversationOptions,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          child: Row(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.82,
+      minChildSize: 0.48,
+      maxChildSize: 0.94,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF3F5F7),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
             children: [
-              _buildUserAvatar(),
-              const SizedBox(width: 16),
-              Expanded(
+              const SizedBox(height: 10),
+              Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _otherUser!.displayName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: unreadCount > 0
-                                  ? const Color(0xFF6C56F9)
-                                  : Colors.black,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          DateFormat.Hm().format(timestamp),
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
+                    const Text(
+                      'Nouvelle conversation',
+                      style: TextStyle(
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 22,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        if (lastMessageType != TypeMessage.texte)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 4),
-                            child: Icon(
-                              _getMessageTypeIcon(lastMessageType),
-                              size: 16,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        Expanded(
-                          child: Text(
-                            lastMessage,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: unreadCount > 0 ? Colors.black : Colors.grey[600],
-                              fontSize: 14,
-                            ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Choisissez un client, créateur ou boutique. Les comptes admin restent invisibles.',
+                      style: TextStyle(
+                        color: Color(0xFF4B5563),
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (value) => setState(() => _query = value),
+                      decoration: InputDecoration(
+                        hintText: 'Rechercher par nom, métier, ville...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF0F766E),
+                            width: 1.5,
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
               ),
-              if (unreadCount > 0)
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6C56F9),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      unreadCount.toString(),
+              Expanded(
+                child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  future: _usersFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      debugPrint(
+                        'Erreur chargement contacts: ${snapshot.error}',
+                      );
+                      return const Center(
+                        child: Text('Contacts indisponibles.'),
+                      );
+                    }
+
+                    final targets = _buildTargets(snapshot.data?.docs ?? []);
+                    if (targets.isEmpty) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'Aucun contact disponible pour le moment.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    }
+
+                    return ListView.separated(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+                      itemCount: targets.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final target = targets[index];
+                        return _TargetTile(target: target);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<_ConversationTarget> _buildTargets(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final query = _query.trim().toLowerCase();
+    final targets = <_ConversationTarget>[];
+
+    for (final doc in docs) {
+      if (doc.id == widget.currentUser.id) continue;
+      final data = doc.data();
+      final user = UserModel.fromMap(data, docId: doc.id);
+      if (user.isAdmin) continue;
+      final status =
+          data['accountStatus']?.toString().toLowerCase() ?? 'active';
+      if (status == 'closed' || status == 'suspended' || status == 'disabled') {
+        continue;
+      }
+
+      final searchable =
+          [
+            user.displayName,
+            user.boutiqueName,
+            user.specialty,
+            user.location,
+            user.bio,
+            user.email,
+          ].whereType<String>().join(' ').toLowerCase();
+      if (query.isNotEmpty && !searchable.contains(query)) continue;
+
+      for (final role in _visibleRoles(user)) {
+        targets.add(_ConversationTarget(user: user, role: role));
+      }
+    }
+
+    targets.sort((a, b) => _displayName(a).compareTo(_displayName(b)));
+    return targets;
+  }
+
+  List<String> _visibleRoles(UserModel user) {
+    final roles = <String>{...user.roles};
+    roles.remove('admin');
+    if (roles.isEmpty) roles.add('client');
+
+    if (widget.currentUser.role == 'client') {
+      final proRoles = roles.where((role) => role != 'client').toList();
+      return proRoles.isEmpty ? ['client'] : proRoles;
+    }
+
+    if (roles.contains('client')) return ['client'];
+    return roles.toList();
+  }
+
+  static String _displayName(_ConversationTarget target) {
+    if (target.role == 'boutique') {
+      return target.user.boutiqueName ?? target.user.displayName;
+    }
+    return target.user.displayName;
+  }
+}
+
+class _TargetTile extends StatelessWidget {
+  const _TargetTile({required this.target});
+
+  final _ConversationTarget target;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _roleColor(target.role);
+    final name =
+        target.role == 'boutique'
+            ? target.user.boutiqueName ?? target.user.displayName
+            : target.user.displayName;
+    final subtitle = [
+      _roleLabel(target.role),
+      target.user.specialty,
+      target.user.location,
+    ].whereType<String>().where((item) => item.trim().isNotEmpty).join(' • ');
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => Navigator.pop(context, target),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundImage: CachedNetworkImageProvider(
+                  target.user.safePhotoUrl,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle.isEmpty ? target.user.email : subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF4B5563),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  _roleLabel(target.role),
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11,
                   ),
-                )
+                ),
+              ),
             ],
           ),
         ),
@@ -524,208 +787,19 @@ class _ConversationListItemState extends State<ConversationListItem> {
     );
   }
 
-  Widget _buildUserAvatar() {
-    return Stack(
-      children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: _isOnline ? const Color(0xFF6C56F9) : Colors.grey[300]!,
-              width: 2,
-            ),
-          ),
-          child: ClipOval(
-            child: CachedNetworkImage(
-              imageUrl: _otherUser?.safePhotoUrl ?? '',
-              placeholder: (context, url) => Container(
-                color: Colors.grey[200],
-                child: Center(child: Icon(Icons.person, color: Colors.grey[400])),
-              ),
-              errorWidget: (context, url, error) => Container(
-                color: Colors.grey[200],
-                child: Center(child: Icon(Icons.person, color: Colors.grey[400])),
-              ),
-              fit: BoxFit.cover,
-            ),
-          ),
-        ),
-        if (_isOnline)
-          Positioned(
-            bottom: 0,
-            right: 0,
-            child: Container(
-              width: 14,
-              height: 14,
-              decoration: BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-            ),
-          ),
-      ],
-    );
+  static Color _roleColor(String role) {
+    return switch (role) {
+      'boutique' => const Color(0xFFF97316),
+      'createur' => const Color(0xFF7C3AED),
+      _ => const Color(0xFF2563EB),
+    };
   }
 
-  IconData _getMessageTypeIcon(TypeMessage type) {
-    switch (type) {
-      case TypeMessage.image: return Icons.image;
-      case TypeMessage.video: return Icons.videocam;
-      case TypeMessage.audio: return Icons.mic;
-      case TypeMessage.document: return Icons.insert_drive_file;
-      case TypeMessage.produit: return Icons.shopping_bag;
-      case TypeMessage.localisation: return Icons.location_on;
-      default: return Icons.text_snippet;
-    }
-  }
-
-  Widget _buildLoadingItem() {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey[200]!,
-      highlightColor: Colors.grey[100]!,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(height: 16, width: 150, color: Colors.white),
-                  const SizedBox(height: 8),
-                  Container(height: 14, width: 200, color: Colors.white),
-                ],
-              ),
-            ),
-            Container(width: 40, height: 40, color: Colors.white),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUnknownUserItem() {
-    return ListTile(
-      leading: CircleAvatar(child: Icon(Icons.person_off, color: Colors.grey[400])),
-      title: const Text('Utilisateur inconnu'),
-      subtitle: const Text('Cette conversation ne peut pas être affichée'),
-      trailing: IconButton(
-        icon: const Icon(Icons.delete),
-        onPressed: () => widget.onDelete(widget.doc.id),
-      ),
-    );
-  }
-
-  Future<bool> _confirmDeletion() async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Supprimer la conversation'),
-        content: const Text('Êtes-vous sûr de vouloir supprimer cette conversation ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
-    ) ?? false;
-  }
-
-  Future<void> _showConversationOptions() async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildOptionTile(
-              icon: Icons.delete,
-              label: 'Supprimer la conversation',
-              value: 'delete',
-              color: Colors.red,
-            ),
-            _buildOptionTile(
-              icon: Icons.notifications_off,
-              label: 'Désactiver les notifications',
-              value: 'mute',
-            ),
-            _buildOptionTile(
-              icon: Icons.archive,
-              label: 'Archiver la conversation',
-              value: 'archive',
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-
-    if (choice == 'delete') {
-      if (await _confirmDeletion()) {
-        widget.onDelete(widget.doc.id);
-      }
-    }
-  }
-
-  Widget _buildOptionTile({
-    required IconData icon,
-    required String label,
-    required String value,
-    Color? color,
-  }) {
-    return ListTile(
-      leading: Icon(icon, color: color ?? Colors.grey[700]),
-      title: Text(label, style: TextStyle(color: color ?? Colors.black)),
-      onTap: () => Navigator.pop(context, value),
-    );
-  }
-
-  void _openChatScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(
-          utilisateurCourant: widget.currentUser,
-          autreUtilisateur: _otherUser!,
-        ),
-      ),
-    ).then((_) {
-      if (mounted) {
-        _loadConversationData();
-      }
-    });
+  static String _roleLabel(String role) {
+    return switch (role) {
+      'boutique' => 'Boutique',
+      'createur' => 'Créateur',
+      _ => 'Client',
+    };
   }
 }

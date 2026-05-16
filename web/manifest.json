@@ -1,11 +1,11 @@
 {
-    "name": "elegantfaso",
-    "short_name": "elegantfaso",
+    "name": "ElegantStyle",
+    "short_name": "ElegantStyle",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "ElegantStyle - application de mode, marketplace et style.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

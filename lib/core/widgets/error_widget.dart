@@ -11,7 +11,7 @@ class ErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ElegantFaso - Error',
+      title: 'ElegantStyle - Error',
       theme: ThemeData(
         primaryColor: ColorConstants.primary,
         scaffoldBackgroundColor: ColorConstants.background,
@@ -24,21 +24,22 @@ class ErrorApp extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline,
-                    size: 48,
-                    color: Colors.red),
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
                 const SizedBox(height: 16),
-                Text('Erreur d\'initialisation',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: ColorConstants.text)),
+                Text(
+                  'Erreur d\'initialisation',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: ColorConstants.text,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                Text('Impossible de démarrer l\'application : $error',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: ColorConstants.hint)),
+                Text(
+                  'Impossible de démarrer l\'application : $error',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: ColorConstants.hint),
+                ),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () => main(),

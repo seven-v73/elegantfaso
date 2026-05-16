@@ -1,709 +1,512 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'fashion_assistant.dart';
-import 'user_profile.dart';
-import 'mesurement.dart';
+
+import '../../../../../design/app_icons.dart';
+import '../../../../../models/client/client_dashboard_summary.dart';
+import '../../../../../services/client/client_dashboard_service.dart';
+import '../../../global/salon_search_screen.dart';
+import '../../widgets/client_saved_rail.dart';
+import '../virtual_try_on_screen.dart';
 import 'chat_screen.dart';
+import 'fashion_assistant.dart';
 import 'garde_robe.dart';
+import 'mesurement.dart';
 
 class StyleHubScreen extends StatefulWidget {
-  const StyleHubScreen({super.key});
+  const StyleHubScreen({super.key, this.showBackButton = false});
+
+  final bool showBackButton;
 
   @override
   State<StyleHubScreen> createState() => _StyleHubScreenState();
 }
 
 class _StyleHubScreenState extends State<StyleHubScreen>
-    with TickerProviderStateMixin {
-  final user = FirebaseAuth.instance.currentUser;
-  String userName = "Cher Client";
+    with SingleTickerProviderStateMixin {
+  static const Color _background = Color(0xFFF5F6F8);
+  static const Color _surface = Color(0xFFFFFFFF);
+  static const Color _ink = Color(0xFF111827);
+  static const Color _muted = Color(0xFF667085);
+  static const Color _line = Color(0xFFE4E7EC);
+  static const Color _primary = Color(0xFF0F766E);
+  static const Color _rose = Color(0xFFE11D48);
+  static const Color _blue = Color(0xFF2563EB);
 
-  late AnimationController _fadeController;
-  late AnimationController _scaleController;
-  late AnimationController _slideController;
-  late AnimationController _pulseController;
-  late AnimationController _backgroundController;
-  late AnimationController _cardController;
-
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<Offset> _slideAnimation;
-  late Animation<double> _pulseAnimation;
-  late Animation<Color?> _backgroundAnimation;
-  late Animation<double> _cardAnimation;
-
-  List<AnimationController> _buttonControllers = [];
-  List<Animation<double>> _buttonAnimations = [];
-
-  Timer? _animationTimer;
+  late final AnimationController _introController;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<Offset> _slideAnimation;
+  final ClientDashboardService _dashboardService = ClientDashboardService();
 
   @override
   void initState() {
     super.initState();
-    _initAnimations();
-    _fetchUserName();
-  }
-
-  void _initAnimations() {
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
+    _introController = AnimationController(
+      duration: const Duration(milliseconds: 520),
       vsync: this,
     );
-
-    _scaleController = AnimationController(
-      duration: const Duration(milliseconds: 1600),
-      vsync: this,
+    _fadeAnimation = CurvedAnimation(
+      parent: _introController,
+      curve: Curves.easeOut,
     );
-
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    );
-
-    _backgroundController = AnimationController(
-      duration: const Duration(seconds: 15),
-      vsync: this,
-    );
-
-    _cardController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
-      CurvedAnimation(parent: _scaleController, curve: Curves.elasticOut),
-    );
-
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.5),
+      begin: const Offset(0, 0.04),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutBack,
-    ));
-
-    _pulseAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
-      CurvedAnimation(
-        parent: _pulseController,
-        curve: Curves.easeInOutSine,
-      ),
+    ).animate(
+      CurvedAnimation(parent: _introController, curve: Curves.easeOutCubic),
     );
-
-    _backgroundAnimation = ColorTween(
-      begin: const Color(0xFF667eea),
-      end: const Color(0xFF764ba2),
-    ).animate(_backgroundController);
-
-    _cardAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _cardController, curve: Curves.easeInOut),
-    );
-
-    // Initialiser les animations des boutons
-    for (int i = 0; i < 4; i++) {
-      final controller = AnimationController(
-        duration: Duration(milliseconds: 600 + (i * 100)),
-        vsync: this,
-      );
-      final animation = Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-          parent: controller,
-          curve: Curves.easeOutBack,
-        ),
-      );
-      _buttonControllers.add(controller);
-      _buttonAnimations.add(animation);
-    }
-
-    // Démarrer les animations avec des délais échelonnés
-    _startAnimations();
-  }
-
-  void _startAnimations() {
-    // Annuler tout timer existant
-    _animationTimer?.cancel();
-
-    _animationTimer = Timer(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
-      _fadeController.forward();
-      _backgroundController.repeat(reverse: true);
-      _pulseController.repeat(reverse: true);
-
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (!mounted) return;
-        _scaleController.forward();
-      });
-
-      Future.delayed(const Duration(milliseconds: 400), () {
-        if (!mounted) return;
-        _slideController.forward();
-      });
-
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (!mounted) return;
-        _cardController.forward();
-      });
-
-      // Animer les boutons un par un
-      for (int i = 0; i < _buttonControllers.length; i++) {
-        Future.delayed(Duration(milliseconds: 800 + (i * 150)), () {
-          if (!mounted) return;
-          _buttonControllers[i].forward();
-        });
-      }
-    });
-  }
-
-  void _fetchUserName() async {
-    if (user == null) return;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .get();
-      if (doc.exists && mounted) {
-        setState(() {
-          userName = doc.data()?['name'] ?? "Cher Client";
-        });
-      }
-    } catch (e) {
-      print("Erreur lors de la récupération du nom: $e");
-    }
+    _introController.forward();
   }
 
   @override
   void dispose() {
-    _animationTimer?.cancel();
-    _fadeController.dispose();
-    _scaleController.dispose();
-    _slideController.dispose();
-    _pulseController.dispose();
-    _backgroundController.dispose();
-    _cardController.dispose();
-    for (var controller in _buttonControllers) {
-      controller.dispose();
-    }
+    _introController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isSmallScreen = size.width < 400;
+    final mediaQuery = MediaQuery.of(context);
+    final isCompact = mediaQuery.size.width < 380;
 
     return Scaffold(
-      body: AnimatedBuilder(
-        animation: Listenable.merge([
-          _backgroundController,
-          _fadeController,
-          _scaleController,
-          _slideController,
-          _pulseController,
-          _cardController,
-        ]),
-        builder: (context, child) {
-          return Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  _backgroundAnimation.value ?? const Color(0xFF667eea),
-                  const Color(0xFF764ba2),
-                ],
-              ),
-            ),
-            child: SafeArea(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.only(bottom: 80),
-                child: Column(
-                  children: [
-                    // En-tête avec animation de fade
-                    AnimatedBuilder(
-                      animation: _fadeAnimation,
-                      builder: (context, child) {
-                        return Opacity(
-                          opacity: _fadeAnimation.value.clamp(0.0, 1.0),
-                          child: Transform.translate(
-                            offset: Offset(0, 30 * (1 - _fadeAnimation.value)),
-                            child: _buildHeader(isSmallScreen),
-                          ),
-                        );
-                      },
+      backgroundColor: _background,
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: CustomScrollView(
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isCompact ? 16 : 20,
+                      18,
+                      isCompact ? 16 : 20,
+                      18,
                     ),
-
-                    // Illustration centrale avec animation
-                    AnimatedBuilder(
-                      animation: _scaleAnimation,
-                      builder: (context, child) {
-                        return Transform.scale(
-                          scale: _scaleAnimation.value,
-                          child: _buildCentralIllustration(context),
-                        );
-                      },
-                    ),
-
-                    // Boutons avec animations individuelles
-                    _buildActionButtons(context),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildHeader(bool isSmallScreen) {
-    return AnimatedBuilder(
-      animation: _cardAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.8 + (_cardAnimation.value * 0.2),
-          child: Container(
-            margin: const EdgeInsets.only(top: 20, left: 24, right: 24, bottom: 10),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(30),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withOpacity(0.25),
-                  Colors.white.withOpacity(0.1),
-                ],
-              ),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.4),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 30,
-                  offset: const Offset(0, 15),
-                ),
-                BoxShadow(
-                  color: Colors.white.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, -5),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                ShaderMask(
-                  shaderCallback: (bounds) => const LinearGradient(
-                    colors: [Colors.white, Color(0xFFE8EAF6)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ).createShader(bounds),
-                  child: RichText(
-                    textAlign: TextAlign.center,
-                    text: TextSpan(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextSpan(
-                          text: "Bonjour, ",
-                          style: TextStyle(
-                            fontSize: isSmallScreen ? 24 : 30,
-                            fontWeight: FontWeight.w300,
-                            color: Colors.white.withOpacity(0.9),
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        TextSpan(
-                          text: userName,
-                          style: TextStyle(
-                            fontSize: isSmallScreen ? 24 : 30,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const TextSpan(
-                          text: " ✨",
-                          style: TextStyle(
-                            fontSize: 32,
-                            color: Colors.white,
-                          ),
-                        ),
+                        _buildTopBar(),
+                        const SizedBox(height: 14),
+                        _buildHeroCard(isCompact),
+                        const SizedBox(height: 12),
+                        _buildToolRail(),
                       ],
                     ),
                   ),
                 ),
+                SliverToBoxAdapter(child: _buildFavoritesStarter(isCompact)),
+                const SliverToBoxAdapter(child: SizedBox(height: 92)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Row(
+      children: [
+        _IconButtonSurface(
+          icon: widget.showBackButton ? Icons.arrow_back : AppIcons.style,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            if (widget.showBackButton && Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
+        ),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Style',
+                style: TextStyle(
+                  color: _ink,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Conseil · Tailles · Dressing',
+                style: TextStyle(
+                  color: _muted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeroCard(bool isCompact) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _ink,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A111827),
+            offset: Offset(0, 14),
+            blurRadius: 24,
+            spreadRadius: -16,
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned(
+            right: -24,
+            top: -18,
+            child: Transform.rotate(
+              angle: -0.35,
+              child: Container(
+                width: 112,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: _primary.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 28,
+            bottom: -22,
+            child: Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(isCompact ? 18 : 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(AppIcons.style, color: Colors.white),
+                ),
                 const SizedBox(height: 16),
                 Text(
-                  "Découvrez votre style unique avec nos conseils personnalisés",
+                  'Studio Style',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: isSmallScreen ? 15 : 17,
-                    color: Colors.white.withOpacity(0.95),
-                    height: 1.5,
-                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                    fontSize: isCompact ? 27 : 31,
+                    height: 1.02,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
                   ),
-                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Composer, essayer, ajuster.',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Color(0xFFD1D5DB),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 50,
+                        child: FilledButton.icon(
+                          onPressed: () => _navigateToOutfits(context),
+                          icon: const Icon(AppIcons.recommendations, size: 18),
+                          label: const Text('Composer'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: _ink,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SizedBox(
+                        height: 50,
+                        child: FilledButton.tonalIcon(
+                          onPressed: () => _navigateToTryOn(context),
+                          icon: const Icon(Icons.view_in_ar_rounded, size: 18),
+                          label: const Text('Essayage'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.14,
+                            ),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.18),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolRail() {
+    return Row(
+      children: [
+        Expanded(
+          child: _StyleToolButton(
+            icon: AppIcons.messages,
+            label: 'Avis',
+            color: _primary,
+            onTap: () => _navigateToChat(context),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _StyleToolButton(
+            icon: AppIcons.measurements,
+            label: 'Tailles',
+            color: _blue,
+            onTap: () => _navigateToMeasurements(context),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _StyleToolButton(
+            icon: AppIcons.wardrobe,
+            label: 'Dressing',
+            color: _rose,
+            onTap: () => _navigateToWardrobe(context),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyFavorites(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: _cardDecoration(radius: 16),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: _primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(AppIcons.salon, color: _primary),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Ajoutez des favoris depuis le Salon.',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _ink,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            tooltip: 'Salon',
+            onPressed: () => _openSalonSearch(context, ''),
+            icon: const Icon(AppIcons.salon),
+            style: IconButton.styleFrom(
+              backgroundColor: _primary.withValues(alpha: 0.1),
+              foregroundColor: _primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle({required String title}) {
+    return Text(
+      title,
+      style: const TextStyle(
+        color: _ink,
+        fontSize: 20,
+        height: 1.15,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+    );
+  }
+
+  Widget _buildFavoritesStarter(bool isCompact) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    return StreamBuilder<ClientDashboardSummary>(
+      stream: _dashboardService.watchSummary(user.uid),
+      builder: (context, snapshot) {
+        final items = snapshot.data?.savedItems.take(6).toList() ?? const [];
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            isCompact ? 16 : 20,
+            20,
+            isCompact ? 16 : 20,
+            0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle(title: 'Favoris'),
+              const SizedBox(height: 12),
+              if (items.isEmpty)
+                _buildEmptyFavorites(context)
+              else
+                ClientSavedRail(
+                  items: items,
+                  onSeeAll: () => _navigateToWardrobe(context),
+                  onTapItem: (_) => _navigateToWardrobe(context),
+                  onTryOn: (_) => _navigateToTryOn(context),
+                  onFindVendor: (item) => _openSalonSearch(context, item.title),
+                  onAskAdvice: (_) => _navigateToChat(context),
+                  onCreateLook: (_) => _navigateToOutfits(context),
+                ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildCentralIllustration(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 20),
-      child: AnimatedBuilder(
-        animation: _pulseAnimation,
-        builder: (context, child) {
-          return Stack(
-            alignment: Alignment.center,
-            children: [
-              // Multiples cercles avec effet pulsant
-              ...List.generate(3, (index) {
-                return Transform.scale(
-                  scale: _pulseAnimation.value * (1 - index * 0.1),
-                  child: Container(
-                    width: screenWidth * (0.8 - index * 0.15),
-                    height: screenWidth * (0.8 - index * 0.15),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.15 - index * 0.05),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.3, 1.0],
-                      ),
-                    ),
-                  ),
-                );
-              }),
-
-              // Icône centrale avec effet glassmorphism amélioré
-              Container(
-                width: screenWidth * 0.4,
-                height: screenWidth * 0.4,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withOpacity(0.3),
-                      Colors.white.withOpacity(0.1),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.4),
-                    width: 3,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 40,
-                      offset: const Offset(0, 20),
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withOpacity(0.2),
-                      blurRadius: 20,
-                      offset: const Offset(0, -10),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  size: 80,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+  static BoxDecoration _cardDecoration({double radius = 14}) {
+    return BoxDecoration(
+      color: _surface,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: _line),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x0F0F172A),
+          offset: Offset(0, 8),
+          blurRadius: 18,
+          spreadRadius: -12,
+        ),
+      ],
     );
   }
 
-  Widget _buildActionButtons(BuildContext context) {
-    final buttonConfigs = [
-      {
-        'icon': Icons.psychology_outlined,
-        'label': 'CONSEILLER DE STYLE',
-        'subtitle': 'Chat IA personnalisé',
-        'gradient': const LinearGradient(
-          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        'shadowColor': const Color(0xFF667eea),
-        'onPressed': () => _navigateToChat(context),
-      },
-      {
-        'icon': Icons.diamond_outlined,
-        'label': 'RECOMMANDATIONS',
-        'subtitle': 'Suggestions personnalisées',
-        'gradient': const LinearGradient(
-          colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        'shadowColor': const Color(0xFFFF6B6B),
-        'onPressed': () => _navigateToRecommendations(context),
-      },
-      {
-        'icon': Icons.straighten,
-        'label': 'MES MENSURATIONS',
-        'subtitle': 'Gérez votre profil de mesures',
-        'gradient': const LinearGradient(
-          colors: [Color(0xFF4ECDC4), Color(0xFF44A08D)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        'shadowColor': const Color(0xFF4ECDC4),
-        'onPressed': () => _navigateToMeasurements(context),
-      },
-      {
-        'icon': Icons.style_outlined,
-        'label': 'GARDE-ROBE',
-        'subtitle': 'Collection personnelle',
-        'gradient': const LinearGradient(
-          colors: [Color(0xFF9B59B6), Color(0xFF8E44AD)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        'shadowColor': const Color(0xFF9B59B6),
-        'onPressed': () => _navigateToWardrobe(context),
-      },
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: List.generate(buttonConfigs.length, (index) {
-          return AnimatedBuilder(
-            animation: _buttonAnimations[index],
-            builder: (context, child) {
-              return Transform.translate(
-                offset: Offset(0, 50 * (1 - _buttonAnimations[index].value)),
-                child: Opacity(
-                  opacity: _buttonAnimations[index].value.clamp(0.0, 1.0),
-                  child: Transform.scale(
-                    scale: 0.8 + (_buttonAnimations[index].value * 0.2),
-                    child: _buildEnhancedButton(
-                      context: context,
-                      config: buttonConfigs[index],
-                      index: index,
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        }),
-      ),
-    );
-  }
-
-  Widget _buildEnhancedButton({
-    required BuildContext context,
-    required Map<String, dynamic> config,
-    required int index,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            HapticFeedback.mediumImpact();
-            config['onPressed']();
-          },
-          borderRadius: BorderRadius.circular(25),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-            decoration: BoxDecoration(
-              gradient: config['gradient'],
-              borderRadius: BorderRadius.circular(25),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.2),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: config['shadowColor'].withOpacity(0.3),
-                  blurRadius: 25,
-                  offset: const Offset(0, 10),
-                  spreadRadius: 0,
-                ),
-                BoxShadow(
-                  color: Colors.white.withOpacity(0.1),
-                  blurRadius: 15,
-                  offset: const Offset(0, -5),
-                  spreadRadius: 0,
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      config['icon'],
-                      size: 28,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          config['label'],
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          config['subtitle'],
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.white.withOpacity(0.9),
-                      size: 18,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Méthodes de navigation avec animations personnalisées
-  void _navigateToChat(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user != null) {
-      Navigator.of(context).push(
-        PageRouteBuilder<void>(
-          pageBuilder: (context, animation, secondaryAnimation) => const ChatScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeInOutCubic,
-              )),
-              child: FadeTransition(
-                opacity: animation,
-                child: child,
-              ),
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 500),
-        ),
-      );
-    } else {
+  void _navigateToChat(BuildContext context) {
+    if (FirebaseAuth.instance.currentUser == null) {
       _showLoginSnackBar(context);
+      return;
     }
-  }
 
-  void _navigateToRecommendations(BuildContext context) {
-    Navigator.push(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, _) => const BurkinabeFashionAssistant(),
-        transitionsBuilder: (context, animation, _, child) {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        pageBuilder:
+            (context, animation, secondaryAnimation) => const ChatScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
             position: Tween<Offset>(
-              begin: const Offset(0.0, 1.0),
+              begin: const Offset(0.05, 0.0),
               end: Offset.zero,
-            ).animate(CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            )),
+            ).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+            ),
             child: FadeTransition(opacity: animation, child: child),
           );
         },
-        transitionDuration: const Duration(milliseconds: 600),
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
+  void _navigateToOutfits(BuildContext context) {
+    Navigator.push(
+      context,
+      PageRouteBuilder<void>(
+        pageBuilder:
+            (context, animation, _) => const BurkinabeFashionAssistant(),
+        transitionsBuilder: (context, animation, _, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.0, 0.05),
+              end: Offset.zero,
+            ).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+            ),
+            child: FadeTransition(opacity: animation, child: child),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
 
   void _navigateToMeasurements(BuildContext context) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-        const ProfileMeasurementsPage(),
-        transitionDuration: const Duration(milliseconds: 800),
+      PageRouteBuilder<void>(
+        pageBuilder:
+            (context, animation, secondaryAnimation) =>
+                const ProfileMeasurementsPage(),
+        transitionDuration: const Duration(milliseconds: 280),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return ScaleTransition(
-            scale: Tween<double>(
-              begin: 0.8,
-              end: 1.0,
-            ).animate(CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutBack,
-            )),
-            child: FadeTransition(
-              opacity: animation,
-              child: child,
-            ),
-          );
+          return FadeTransition(opacity: animation, child: child);
         },
+      ),
+    );
+  }
+
+  void _navigateToTryOn(BuildContext context) {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        pageBuilder:
+            (context, animation, secondaryAnimation) =>
+                const VirtualTryOnScreen(),
+        transitionDuration: const Duration(milliseconds: 280),
+        transitionsBuilder:
+            (context, animation, secondaryAnimation, child) =>
+                FadeTransition(opacity: animation, child: child),
       ),
     );
   }
@@ -711,24 +514,20 @@ class _StyleHubScreenState extends State<StyleHubScreen>
   void _navigateToWardrobe(BuildContext context) {
     Navigator.push(
       context,
-      PageRouteBuilder(
+      PageRouteBuilder<void>(
         pageBuilder: (context, animation, _) => WardrobeScreen(),
         transitionsBuilder: (context, animation, _, child) {
           return SlideTransition(
             position: Tween<Offset>(
-              begin: const Offset(-1.0, 0.0),
+              begin: const Offset(0.0, 0.05),
               end: Offset.zero,
-            ).animate(CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeInOutCubic,
-            )),
-            child: FadeTransition(
-              opacity: animation,
-              child: child,
+            ).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
             ),
+            child: FadeTransition(opacity: animation, child: child),
           );
         },
-        transitionDuration: const Duration(milliseconds: 500),
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
@@ -736,17 +535,104 @@ class _StyleHubScreenState extends State<StyleHubScreen>
   void _showLoginSnackBar(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Veuillez vous connecter pour accéder au chat'),
-        backgroundColor: Colors.red[400],
+        content: const Text('Connectez-vous pour ouvrir le conseil style.'),
+        backgroundColor: _rose,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _openSalonSearch(BuildContext context, String query) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => SalonSearchScreen(initialQuery: query)),
+    );
+  }
+}
+
+class _StyleToolButton extends StatelessWidget {
+  const _StyleToolButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _StyleHubScreenState._surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Container(
+          height: 84,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _StyleHubScreenState._line),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _StyleHubScreenState._ink,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
         ),
-        action: SnackBarAction(
-          label: 'Se connecter',
-          textColor: Colors.white,
-          onPressed: () => Navigator.pushNamed(context, '/login'),
+      ),
+    );
+  }
+}
+
+class _IconButtonSurface extends StatelessWidget {
+  const _IconButtonSurface({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: _StyleHubScreenState._cardDecoration(radius: 14),
+          child: Icon(icon, color: _StyleHubScreenState._ink, size: 21),
         ),
       ),
     );

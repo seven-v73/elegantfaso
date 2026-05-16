@@ -9,6 +9,7 @@ class StatCard extends StatelessWidget {
   final String trendValue;
 
   const StatCard({
+    super.key,
     required this.title,
     required this.value,
     required this.icon,
@@ -21,18 +22,13 @@ class StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
+        color: ModernColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: ModernColors.line),
+        boxShadow: ModernShadows.card,
       ),
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -43,34 +39,46 @@ class StatCard extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(icon, size: 20, color: color),
                 ),
                 if (trend != Trend.neutral)
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: trend == Trend.up
-                          ? Colors.green.withOpacity(0.1)
-                          : Colors.red.withOpacity(0.1),
+                      color:
+                          trend == Trend.up
+                              ? ModernColors.success.withValues(alpha: 0.1)
+                              : ModernColors.danger.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          trend == Trend.up ? Icons.trending_up : Icons.trending_down,
+                          trend == Trend.up
+                              ? Icons.trending_up_rounded
+                              : Icons.trending_down_rounded,
                           size: 14,
-                          color: trend == Trend.up ? Colors.green : Colors.red,
+                          color:
+                              trend == Trend.up
+                                  ? ModernColors.success
+                                  : ModernColors.danger,
                         ),
-                        SizedBox(width: 4),
+                        const SizedBox(width: 4),
                         Text(
                           trendValue,
                           style: TextStyle(
                             fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: trend == Trend.up ? Colors.green : Colors.red,
+                            fontWeight: FontWeight.w900,
+                            color:
+                                trend == Trend.up
+                                    ? ModernColors.success
+                                    : ModernColors.danger,
                           ),
                         ),
                       ],
@@ -78,21 +86,27 @@ class StatCard extends StatelessWidget {
                   ),
               ],
             ),
-            SizedBox(height: 16),
+            const Spacer(),
             Text(
               title,
-              style: TextStyle(
-                color: Colors.grey[600],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: ModernColors.inkSoft,
                 fontSize: 14,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[800],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: ModernColors.ink,
+                letterSpacing: 0,
               ),
             ),
           ],

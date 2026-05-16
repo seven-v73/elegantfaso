@@ -5,6 +5,7 @@ class OrderItem {
   final String name;
   final String imageUrl;
   final double price;
+  final String currency;
   final int quantity;
   final String? size;
   final String? color;
@@ -15,6 +16,7 @@ class OrderItem {
     required this.name,
     required this.imageUrl,
     required this.price,
+    this.currency = 'XOF',
     required this.quantity,
     this.size,
     this.color,
@@ -27,7 +29,11 @@ class OrderItem {
         productId: data['productId'] as String,
         name: data['name'] as String,
         imageUrl: data['imageUrl'] as String? ?? '',
-        price: (data['price'] is int ? (data['price'] as int).toDouble() : data['price'] as double),
+        price:
+            (data['price'] is int
+                ? (data['price'] as int).toDouble()
+                : data['price'] as double),
+        currency: data['currency']?.toString() ?? 'XOF',
         quantity: data['quantity'] as int,
         size: data['size'] as String?,
         color: data['color'] as String?,
@@ -44,6 +50,7 @@ class OrderItem {
       'name': name,
       'imageUrl': imageUrl,
       'price': price,
+      'currency': currency,
       'quantity': quantity,
       if (size != null) 'size': size,
       if (color != null) 'color': color,
@@ -58,6 +65,7 @@ class OrderItem {
     String? name,
     String? imageUrl,
     double? price,
+    String? currency,
     int? quantity,
     String? size,
     String? color,
@@ -68,6 +76,7 @@ class OrderItem {
       name: name ?? this.name,
       imageUrl: imageUrl ?? this.imageUrl,
       price: price ?? this.price,
+      currency: currency ?? this.currency,
       quantity: quantity ?? this.quantity,
       size: size ?? this.size,
       color: color ?? this.color,
@@ -85,6 +94,7 @@ class BoutiqueOrder {
   final String status;
   final String deliveryAddress;
   final List<OrderItem> items;
+  final String currency;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final String? paymentMethod;
@@ -102,6 +112,7 @@ class BoutiqueOrder {
     required this.status,
     required this.deliveryAddress,
     required this.items,
+    this.currency = 'XOF',
     required this.createdAt,
     this.updatedAt,
     this.paymentMethod,
@@ -114,6 +125,15 @@ class BoutiqueOrder {
   factory BoutiqueOrder.fromFirestore(DocumentSnapshot doc) {
     try {
       final data = doc.data() as Map<String, dynamic>;
+      final rawItems = data['items'] as List<dynamic>? ?? const [];
+      final items =
+          rawItems
+              .map((item) => OrderItem.fromMap(item as Map<String, dynamic>))
+              .toList();
+      final firstItem =
+          rawItems.isNotEmpty && rawItems.first is Map
+              ? Map<String, dynamic>.from(rawItems.first as Map)
+              : const <String, dynamic>{};
 
       return BoutiqueOrder(
         id: doc.id,
@@ -123,13 +143,16 @@ class BoutiqueOrder {
         boutiqueId: data['boutiqueId'] as String,
         status: data['status'] as String? ?? 'pending',
         deliveryAddress: data['deliveryAddress'] as String,
-        items: (data['items'] as List<dynamic>)
-            .map((item) => OrderItem.fromMap(item as Map<String, dynamic>))
-            .toList(),
+        items: items,
+        currency:
+            data['currency']?.toString() ??
+            firstItem['currency']?.toString() ??
+            'XOF',
         createdAt: (data['createdAt'] as Timestamp).toDate(),
-        updatedAt: data['updatedAt'] != null
-            ? (data['updatedAt'] as Timestamp).toDate()
-            : null,
+        updatedAt:
+            data['updatedAt'] != null
+                ? (data['updatedAt'] as Timestamp).toDate()
+                : null,
         paymentMethod: data['paymentMethod'] as String?,
         paymentStatus: data['paymentStatus'] as String?,
         deliveryNotes: data['deliveryNotes'] as String?,
@@ -150,6 +173,7 @@ class BoutiqueOrder {
       'status': status,
       'deliveryAddress': deliveryAddress,
       'items': items.map((item) => item.toMap()).toList(),
+      'currency': currency,
       'createdAt': Timestamp.fromDate(createdAt),
       if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
       if (paymentMethod != null) 'paymentMethod': paymentMethod,
@@ -160,7 +184,8 @@ class BoutiqueOrder {
     };
   }
 
-  double get subtotal => items.fold(0, (sum, item) => sum + item.totalPrice);
+  double get subtotal =>
+      items.fold(0, (total, item) => total + item.totalPrice);
 
   double get total {
     double total = subtotal;
@@ -178,6 +203,7 @@ class BoutiqueOrder {
     String? status,
     String? deliveryAddress,
     List<OrderItem>? items,
+    String? currency,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? paymentMethod,
@@ -195,6 +221,7 @@ class BoutiqueOrder {
       status: status ?? this.status,
       deliveryAddress: deliveryAddress ?? this.deliveryAddress,
       items: items ?? this.items,
+      currency: currency ?? this.currency,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       paymentMethod: paymentMethod ?? this.paymentMethod,
@@ -215,6 +242,7 @@ class BoutiqueOrder {
     'refunded',
   ];
 
-  bool get isCancellable => !['cancelled', 'refunded', 'delivered'].contains(status);
+  bool get isCancellable =>
+      !['cancelled', 'refunded', 'delivered'].contains(status);
   bool get isEditable => status == 'pending';
 }

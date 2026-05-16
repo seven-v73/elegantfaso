@@ -25,7 +25,10 @@ class DefaultFirebaseOptions {
       case TargetPlatform.iOS:
         return ios;
       case TargetPlatform.macOS:
-        return macos;
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for macos - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
       case TargetPlatform.windows:
         return windows;
       case TargetPlatform.linux:
@@ -41,48 +44,39 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBbOcFx-aoR5wjI4x5ZaofZXoG2D-z0wE4',
-    appId: '1:937131988528:web:4d861796c192cc506ebff5',
-    messagingSenderId: '937131988528',
-    projectId: 'fasostyle-1bb74',
-    authDomain: 'fasostyle-1bb74.firebaseapp.com',
-    storageBucket: 'fasostyle-1bb74.firebasestorage.app',
-    measurementId: 'G-4VP3H5K4ZN',
+    apiKey: 'AIzaSyCUrG7WsoldXB5feWoqpuVBgAwsTJMcQPk',
+    appId: '1:152462835663:web:eb672062eeb3d2bef81cba',
+    messagingSenderId: '152462835663',
+    projectId: 'elegantstyle-5b186',
+    authDomain: 'elegantstyle-5b186.firebaseapp.com',
+    storageBucket: 'elegantstyle-5b186.firebasestorage.app',
+    measurementId: 'G-X8JBMQ0J0L',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyC0EjTTxLPZVa2FOhEWXYCDbTH_qRmwu0U',
-    appId: '1:937131988528:android:bc6780f6a916965d6ebff5',
-    messagingSenderId: '937131988528',
-    projectId: 'fasostyle-1bb74',
-    storageBucket: 'fasostyle-1bb74.firebasestorage.app',
+    apiKey: 'AIzaSyBXri5vskRZ6KEt7T85GJ4safdkpaAyZ9I',
+    appId: '1:152462835663:android:95720dd99751d11af81cba',
+    messagingSenderId: '152462835663',
+    projectId: 'elegantstyle-5b186',
+    storageBucket: 'elegantstyle-5b186.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCweCjhMOCnEYBaXmZaRKS2MLNBimJjWvs',
-    appId: '1:937131988528:ios:c045c326422b9b996ebff5',
-    messagingSenderId: '937131988528',
-    projectId: 'fasostyle-1bb74',
-    storageBucket: 'fasostyle-1bb74.firebasestorage.app',
-    iosBundleId: 'com.example.fasoStyle',
-  );
-
-  static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyCweCjhMOCnEYBaXmZaRKS2MLNBimJjWvs',
-    appId: '1:937131988528:ios:c045c326422b9b996ebff5',
-    messagingSenderId: '937131988528',
-    projectId: 'fasostyle-1bb74',
-    storageBucket: 'fasostyle-1bb74.firebasestorage.app',
-    iosBundleId: 'com.example.fasoStyle',
+    apiKey: 'AIzaSyAqC1cCi_HcTu8q-yXIrXJw83ZbkkM81i4',
+    appId: '1:152462835663:ios:51c1f09e841c5164f81cba',
+    messagingSenderId: '152462835663',
+    projectId: 'elegantstyle-5b186',
+    storageBucket: 'elegantstyle-5b186.firebasestorage.app',
+    iosBundleId: 'com.example.elegantfaso',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyBbOcFx-aoR5wjI4x5ZaofZXoG2D-z0wE4',
-    appId: '1:937131988528:web:cbbd9e4b0b6f39ee6ebff5',
-    messagingSenderId: '937131988528',
-    projectId: 'fasostyle-1bb74',
-    authDomain: 'fasostyle-1bb74.firebaseapp.com',
-    storageBucket: 'fasostyle-1bb74.firebasestorage.app',
-    measurementId: 'G-K02Y1MWCZZ',
+    apiKey: 'AIzaSyCUrG7WsoldXB5feWoqpuVBgAwsTJMcQPk',
+    appId: '1:152462835663:web:b07cdf9dd28aca1af81cba',
+    messagingSenderId: '152462835663',
+    projectId: 'elegantstyle-5b186',
+    authDomain: 'elegantstyle-5b186.firebaseapp.com',
+    storageBucket: 'elegantstyle-5b186.firebasestorage.app',
+    measurementId: 'G-PNZ80GWS7B',
   );
 }

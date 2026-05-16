@@ -1,6 +1,8 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../core/types.dart';
+import '../core/account_roles.dart';
 import '../views/screens/auth/auth_wrapper.dart';
 import '../views/screens/auth/login_screen.dart';
 import '../views/screens/auth/register_screen.dart';
@@ -8,12 +10,18 @@ import '../views/screens/admin/main_admin.dart';
 import '../views/screens/client/home/home_screen.dart';
 import '../views/screens/createur/createur_dashboard_screen.dart';
 import '../views/screens/boutique/dashboard/boutique_dashboard.dart';
+import '../views/screens/notifications/notifications_screen.dart';
 import '../../splash/splash_screen.dart';
 import '../data/repositories/auth_repository.dart';
 import '../views/screens/error_screen.dart';
+import '../services/app/workspace_router_service.dart';
+import '../views/screens/app/workspace_router.dart';
 
 /// Enhanced routing system with improved error handling and performance
 class AppRoutes {
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   // Routes statiques
   static const String splash = '/';
   static const String auth = '/auth';
@@ -23,7 +31,9 @@ class AppRoutes {
   static const String home = '/home';
   static const String creatorDashboard = '/creator-dashboard';
   static const String shopDashboard = '/shop-dashboard';
+  static const String notifications = '/notifications';
   static const String error = '/error';
+  static const String workspace = '/workspace';
 
   static const String initialRoute = splash;
 
@@ -32,6 +42,8 @@ class AppRoutes {
   static String? _lastValidRoute;
   static const int _maxStackSize = 10;
 
+  static String? get lastValidRoute => _lastValidRoute;
+
   // Routes with lazy loading and error boundaries
   static final Map<String, WidgetBuilder> routes = {
     splash: (context) => const SplashScreen(),
@@ -39,16 +51,19 @@ class AppRoutes {
     register: (context) => const RegisterScreen(),
     login: (context) => const LoginScreen(),
     home: (context) => const HomeScreen(),
+    workspace: (context) => const WorkspaceRouter(),
     admin: (context) => AdminApp(),
     creatorDashboard: (context) => const CreateurDashboardScreen(),
     shopDashboard: (context) => const BoutiqueDashboard(),
+    notifications: (context) => NotificationsScreen(),
     error: (context) => _buildErrorScreen(context),
   };
 
   /// Build error screen with proper argument handling
   static Widget _buildErrorScreen(BuildContext context) {
     try {
-      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      final args =
+          ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       final routeName = args?['routeName'] ?? 'Route inconnue';
       return ErrorScreen(routeName: routeName);
     } catch (e) {
@@ -83,10 +98,7 @@ class AppRoutes {
       }
 
       // Return requested route
-      return MaterialPageRoute(
-        builder: routes[routeName]!,
-        settings: settings,
-      );
+      return MaterialPageRoute(builder: routes[routeName]!, settings: settings);
     } catch (e) {
       // Fallback to error route if something goes wrong
       return _createErrorRoute(routeName, settings);
@@ -94,13 +106,13 @@ class AppRoutes {
   }
 
   /// Create error route with proper error handling
-  static Route<dynamic> _createErrorRoute(String routeName, RouteSettings settings) {
+  static Route<dynamic> _createErrorRoute(
+    String routeName,
+    RouteSettings settings,
+  ) {
     return MaterialPageRoute(
       builder: (context) => ErrorScreen(routeName: routeName),
-      settings: RouteSettings(
-        name: error,
-        arguments: {'routeName': routeName},
-      ),
+      settings: RouteSettings(name: error, arguments: {'routeName': routeName}),
     );
   }
 
@@ -112,19 +124,25 @@ class AppRoutes {
 
       // Maintain stack size limit
       if (_navigationStack.length > _maxStackSize) {
-        _navigationStack.removeRange(0, _navigationStack.length - _maxStackSize);
+        _navigationStack.removeRange(
+          0,
+          _navigationStack.length - _maxStackSize,
+        );
       }
     }
   }
 
   /// Navigate based on user role with error handling
-  static Future<void> navigateBasedOnRole(BuildContext context, String role) async {
+  static Future<void> navigateBasedOnRole(
+    BuildContext context,
+    String role,
+  ) async {
     try {
       final String route = getRouteForRole(role);
       await Navigator.pushNamedAndRemoveUntil(
         context,
         route,
-            (Route<dynamic> route) => false,
+        (Route<dynamic> route) => false,
       );
       _navigationStack.clear();
       _addToNavigationStack(route);
@@ -135,33 +153,28 @@ class AppRoutes {
 
   /// Get route for user role
   static String getRouteForRole(String role) {
-    switch (role) {
-      case AppUserRoles.client:
-        return home;
-      case AppUserRoles.admin:
-        return admin;
-      case AppUserRoles.createur:
-        return creatorDashboard;
-      case AppUserRoles.boutique:
-        return shopDashboard;
-      default:
-        return home;
-    }
+    return WorkspaceRouterService().routeForRole(role);
   }
 
   /// Enhanced redirect after authentication
-  static Future<void> redirectAfterAuth(BuildContext context, AuthResult authResult) async {
+  static Future<void> redirectAfterAuth(
+    BuildContext context,
+    AuthResult authResult,
+  ) async {
     try {
       if (authResult.redirectRoute != null) {
         await Navigator.pushNamedAndRemoveUntil(
           context,
           authResult.redirectRoute!,
-              (Route<dynamic> route) => false,
+          (Route<dynamic> route) => false,
         );
         _navigationStack.clear();
         _addToNavigationStack(authResult.redirectRoute!);
       } else {
-        await navigateBasedOnRole(context, authResult.userRole ?? AppUserRoles.client);
+        await navigateBasedOnRole(
+          context,
+          authResult.userRole ?? AccountRoles.client,
+        );
       }
     } catch (e) {
       handleAuthError(context, 'Erreur de redirection: ${e.toString()}');
@@ -169,7 +182,7 @@ class AppRoutes {
       await Navigator.pushNamedAndRemoveUntil(
         context,
         home,
-            (Route<dynamic> route) => false,
+        (Route<dynamic> route) => false,
       );
     }
   }
@@ -185,12 +198,15 @@ class AppRoutes {
   }
 
   /// Helper method for navigation with stack clearing
-  static Future<void> _navigateAndClearStack(BuildContext context, String route) async {
+  static Future<void> _navigateAndClearStack(
+    BuildContext context,
+    String route,
+  ) async {
     try {
       await Navigator.pushNamedAndRemoveUntil(
         context,
         route,
-            (Route<dynamic> route) => false,
+        (Route<dynamic> route) => false,
       );
       _navigationStack.clear();
       _addToNavigationStack(route);
@@ -200,14 +216,20 @@ class AppRoutes {
   }
 
   /// Handle register success with improved UX
-  static Future<void> handleRegisterSuccess(BuildContext context, AuthResult authResult) async {
+  static Future<void> handleRegisterSuccess(
+    BuildContext context,
+    AuthResult authResult,
+  ) async {
     _showSuccessMessage(context, 'Compte créé avec succès ! Bienvenue !');
     await Future.delayed(const Duration(milliseconds: 1500));
     await redirectAfterAuth(context, authResult);
   }
 
   /// Handle login success with improved UX
-  static Future<void> handleLoginSuccess(BuildContext context, AuthResult authResult) async {
+  static Future<void> handleLoginSuccess(
+    BuildContext context,
+    AuthResult authResult,
+  ) async {
     _showSuccessMessage(context, 'Connexion réussie !');
     await Future.delayed(const Duration(milliseconds: 1500));
     await redirectAfterAuth(context, authResult);
@@ -255,7 +277,10 @@ class AppRoutes {
   }
 
   /// Show route error with navigation
-  static Future<void> showRouteError(BuildContext context, String routeName) async {
+  static Future<void> showRouteError(
+    BuildContext context,
+    String routeName,
+  ) async {
     try {
       await Navigator.pushNamed(
         context,
@@ -269,13 +294,7 @@ class AppRoutes {
 
   /// Check if route requires authentication
   static bool requiresAuth(String route) {
-    const Set<String> publicRoutes = {
-      splash,
-      auth,
-      login,
-      register,
-      error,
-    };
+    const Set<String> publicRoutes = {splash, auth, login, register, error};
     return !publicRoutes.contains(route);
   }
 
@@ -283,7 +302,8 @@ class AppRoutes {
   static String getDefaultUnauthenticatedRoute() => auth;
 
   /// Get default route for authenticated users
-  static String getDefaultAuthenticatedRoute(String userRole) => getRouteForRole(userRole);
+  static String getDefaultAuthenticatedRoute(String userRole) =>
+      getRouteForRole(userRole);
 
   /// Enhanced logout with better error handling
   static Future<void> logout(BuildContext context) async {
@@ -293,7 +313,7 @@ class AppRoutes {
       await Navigator.pushNamedAndRemoveUntil(
         context,
         auth,
-            (Route<dynamic> route) => false,
+        (Route<dynamic> route) => false,
       );
       _showSuccessMessage(context, 'Déconnexion réussie');
     } catch (error) {
@@ -302,10 +322,16 @@ class AppRoutes {
   }
 
   /// Enhanced initial navigation handling
-  static Future<void> handleInitialNavigation(BuildContext context, User? user) async {
+  static Future<void> handleInitialNavigation(
+    BuildContext context,
+    User? user,
+  ) async {
     try {
       if (user == null) {
-        await Navigator.pushReplacementNamed(context, getDefaultUnauthenticatedRoute());
+        await Navigator.pushReplacementNamed(
+          context,
+          getDefaultUnauthenticatedRoute(),
+        );
       } else {
         final authResult = await AuthRepository().getCurrentUserInfo();
         if (authResult != null) {
@@ -358,7 +384,10 @@ class AppRoutes {
   }
 
   /// Navigate with history tracking
-  static Future<void> navigateWithHistory(BuildContext context, String route) async {
+  static Future<void> navigateWithHistory(
+    BuildContext context,
+    String route,
+  ) async {
     try {
       await Navigator.pushNamed(context, route);
       _addToNavigationStack(route);
@@ -368,7 +397,10 @@ class AppRoutes {
   }
 
   /// Replace current route
-  static Future<void> replaceCurrentRoute(BuildContext context, String route) async {
+  static Future<void> replaceCurrentRoute(
+    BuildContext context,
+    String route,
+  ) async {
     try {
       await Navigator.pushReplacementNamed(context, route);
       if (_navigationStack.isNotEmpty) {
@@ -381,7 +413,8 @@ class AppRoutes {
   }
 
   /// Safe navigate back (alias for smartNavigateBack)
-  static void safeNavigateBack(BuildContext context) => smartNavigateBack(context);
+  static void safeNavigateBack(BuildContext context) =>
+      smartNavigateBack(context);
 
   /// Check if user is authenticated
   static Future<bool> isUserAuthenticated() async {

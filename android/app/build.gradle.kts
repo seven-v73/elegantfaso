@@ -7,6 +7,7 @@ plugins {
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
+    id("com.google.firebase.firebase-perf")
     id("kotlin-kapt")
 }
 
@@ -17,9 +18,12 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+val hasReleaseKeystore = rootProject.file("key.properties").exists() &&
+    keystoreProperties.getProperty("storeFile")?.isNotBlank() == true
+
 android {
     namespace = "com.example.faso_style"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
@@ -34,8 +38,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.faso_style"
-        minSdk = 24
-        targetSdk = 35
+        minSdk = flutter.minSdkVersion
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
         multiDexEnabled = true
@@ -56,13 +60,19 @@ android {
 
     signingConfigs {
         create("release") {
-            if (rootProject.file("key.properties").exists()) {
+            if (hasReleaseKeystore) {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                 storeFile = file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
-            } else {
-                storeFile = file("${projectDir}/my-release-key.jks")
+            }
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+        getByName("debug") {
+            val localDebugKeystore = file("${projectDir}/my-release-key.jks")
+            if (localDebugKeystore.exists()) {
+                storeFile = localDebugKeystore
                 storePassword = "14209575"
                 keyAlias = "elegantfaso"
                 keyPassword = "14209575"
@@ -70,19 +80,15 @@ android {
             enableV1Signing = true
             enableV2Signing = true
         }
-        getByName("debug") {
-            storeFile = file("${projectDir}/my-release-key.jks")
-            storePassword = "14209575"
-            keyAlias = "elegantfaso"
-            keyPassword = "14209575"
-            enableV1Signing = true
-            enableV2Signing = true
-        }
     }
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

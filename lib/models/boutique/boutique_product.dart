@@ -5,6 +5,7 @@ class BoutiqueProduct {
   final String name;
   final String category;
   final double price;
+  final String currency;
   final String description;
   final int stock;
   final String boutiqueId;
@@ -16,6 +17,7 @@ class BoutiqueProduct {
     required this.name,
     required this.category,
     required this.price,
+    this.currency = 'XOF',
     required this.description,
     required this.stock,
     required this.boutiqueId,
@@ -30,6 +32,7 @@ class BoutiqueProduct {
       name: data['name'] ?? '',
       category: data['category'] ?? '',
       price: (data['price'] ?? 0).toDouble(),
+      currency: data['currency']?.toString() ?? 'XOF',
       description: data['description'] ?? '',
       stock: (data['stock'] ?? 0).toInt(),
       boutiqueId: data['boutiqueId'] ?? '',
@@ -43,6 +46,7 @@ class BoutiqueProduct {
       'name': name,
       'category': category,
       'price': price,
+      'currency': currency,
       'description': description,
       'stock': stock,
       'boutiqueId': boutiqueId,

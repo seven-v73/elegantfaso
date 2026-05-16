@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'dart:math';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -20,281 +18,20 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_sound/flutter_sound.dart' hide PlayerState;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
+import 'package:logger/logger.dart';
+import '../../../design/app_icons.dart';
 import 'user_model.dart';
 import 'chat_service.dart';
 import 'message_model.dart';
 import 'product_model.dart';
-
-// Écran de détail produit
-class ProductDetailScreen extends StatelessWidget {
-  final Produit produit;
-
-  const ProductDetailScreen({super.key, required this.produit});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(produit.nom),
-        backgroundColor: Colors.white,
-        elevation: 1,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: CachedNetworkImage(
-                imageUrl: produit.imageUrl,
-                height: 300,
-                fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  color: Colors.grey[200],
-                  height: 300,
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
-                errorWidget: (context, url, error) => Container(
-                  color: Colors.grey[200],
-                  height: 300,
-                  child: const Icon(Icons.error, size: 50),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              produit.nom,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${produit.prix.toStringAsFixed(2)} €',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: Colors.green,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              produit.description,
-              style: const TextStyle(fontSize: 16, height: 1.5),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                const Icon(Icons.inventory, color: Colors.blue, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Disponible: ${produit.quantiteDisponible} unités',
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Icon(Icons.calendar_today, color: Colors.blue, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Ajouté le: ${DateFormat('dd/MM/yyyy').format(produit.dateCreation)}',
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C56F9),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'COMMANDER CE PRODUIT',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Lecteur vidéo
-class VideoPlayerScreen extends StatefulWidget {
-  final String videoUrl;
-
-  const VideoPlayerScreen({super.key, required this.videoUrl});
-
-  @override
-  State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
-}
-
-class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
-  late VideoPlayerController _controller;
-  late Future<void> _initializeVideoPlayerFuture;
-  bool _isPlaying = false;
-  bool _showControls = true;
-  Timer? _hideControlsTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl))
-      ..addListener(_videoListener);
-    _initializeVideoPlayerFuture = _controller.initialize().then((_) {
-      setState(() {});
-    });
-  }
-
-  void _videoListener() {
-    if (mounted) setState(() {});
-  }
-
-  void _toggleControls() {
-    setState(() => _showControls = !_showControls);
-    if (_showControls) {
-      _startHideTimer();
-    } else {
-      _hideControlsTimer?.cancel();
-    }
-  }
-
-  void _startHideTimer() {
-    _hideControlsTimer?.cancel();
-    _hideControlsTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _controller.value.isPlaying) {
-        setState(() => _showControls = false);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _toggleControls,
-        child: FutureBuilder(
-          future: _initializeVideoPlayerFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.done) {
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  AspectRatio(
-                    aspectRatio: _controller.value.aspectRatio,
-                    child: VideoPlayer(_controller),
-                  ),
-
-                  if (_showControls)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withOpacity(0.6),
-                              Colors.transparent,
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.6),
-                            ],
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            AppBar(
-                              backgroundColor: Colors.transparent,
-                              elevation: 0,
-                              leading: IconButton(
-                                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                                onPressed: () => Navigator.pop(context),
-                              ),
-                            ),
-
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 20),
-                              child: VideoProgressIndicator(
-                                _controller,
-                                allowScrubbing: true,
-                                colors: const VideoProgressColors(
-                                  playedColor: Color(0xFF6C56F9),
-                                ),
-                              ),
-                            ),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                IconButton(
-                                  icon: Icon(Icons.skip_previous, size: 36, color: Colors.white),
-                                  onPressed: () {
-                                    _controller.seekTo(_controller.value.position - const Duration(seconds: 10));
-                                  },
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    _controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
-                                    size: 48,
-                                    color: Colors.white,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      if (_controller.value.isPlaying) {
-                                        _controller.pause();
-                                      } else {
-                                        _controller.play();
-                                        _startHideTimer();
-                                      }
-                                      _isPlaying = _controller.value.isPlaying;
-                                    });
-                                  },
-                                ),
-                                IconButton(
-                                  icon: Icon(Icons.skip_next, size: 36, color: Colors.white),
-                                  onPressed: () {
-                                    _controller.seekTo(_controller.value.position + const Duration(seconds: 10));
-                                  },
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            } else {
-              return const Center(child: CircularProgressIndicator());
-            }
-          },
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.removeListener(_videoListener);
-    _controller.dispose();
-    _hideControlsTimer?.cancel();
-    super.dispose();
-  }
-}
+import '../../../services/media/media_asset_service.dart';
+import '../../../services/media/media_upload_service.dart';
+import '../../../services/salon/salon_analytics_service.dart';
+import '../../../models/messages/conversation_context.dart';
+import '../base/client_profile_screen.dart';
+import '../base/createur_profile_screen.dart';
+part 'chat_video_player_screen.dart';
+part 'chat_product_detail_screen.dart';
 
 // Écran principal de chat
 class ChatScreen extends StatefulWidget {
@@ -302,6 +39,10 @@ class ChatScreen extends StatefulWidget {
   final UserModel autreUtilisateur;
   final Color primaryColor;
   final Color secondaryColor;
+  final String? currentRole;
+  final String? otherRole;
+  final ConversationContext conversationContext;
+  final String? conversationId;
 
   const ChatScreen({
     super.key,
@@ -309,6 +50,10 @@ class ChatScreen extends StatefulWidget {
     required this.autreUtilisateur,
     this.primaryColor = const Color(0xFF6C56F9),
     this.secondaryColor = Colors.white,
+    this.currentRole,
+    this.otherRole,
+    this.conversationContext = const ConversationContext(),
+    this.conversationId,
   });
 
   @override
@@ -317,12 +62,13 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final ChatService _chatService = ChatService();
+  static const _messagesPageSize = 50;
   final TextEditingController _messageController = TextEditingController();
   final AutoScrollController _scrollController = AutoScrollController();
   final FocusNode _focusNode = FocusNode();
   final AudioPlayer _audioPlayer = AudioPlayer();
   final ImagePicker _imagePicker = ImagePicker();
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final MediaUploadService _mediaUploadService = MediaUploadService();
 
   late String _idConversation;
   bool _envoiEnCours = false;
@@ -331,7 +77,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   int? _indexAudioEnLecture;
   Position? _positionActuelle;
   bool _enregistrementAudioEnCours = false;
-  late FlutterSoundRecorder _enregistreurAudio;
+  FlutterSoundRecorder? _enregistreurAudio;
+  bool _enregistreurAudioPret = false;
   String? _cheminFichierAudio;
   Timer? _typingTimer;
   double _recordingAmplitude = 0.0;
@@ -340,7 +87,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _autreUtilisateurEnLigne = false;
   DateTime? _derniereConnexion;
   StreamSubscription<DocumentSnapshot>? _presenceSubscription;
-  Duration? _audioDuration;
+
+  String get _currentRole =>
+      widget.currentRole ?? widget.utilisateurCourant.role;
+  String get _otherRole => widget.otherRole ?? widget.autreUtilisateur.role;
 
   @override
   void initState() {
@@ -348,8 +98,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _initialiserChat();
     _initialiserPresence();
-    _enregistreurAudio = FlutterSoundRecorder();
-    _initialiserEnregistreurAudio();
     _scrollController.addListener(_ecouteurDefilement);
   }
 
@@ -362,10 +110,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _initialiserEnregistreurAudio() async {
-    await _enregistreurAudio.openRecorder();
-    if (await Permission.microphone.isGranted) {
-      await _enregistreurAudio.setSubscriptionDuration(const Duration(milliseconds: 50));
+  Future<bool> _initialiserEnregistreurAudio() async {
+    if (_enregistreurAudioPret) return true;
+    try {
+      final recorder =
+          _enregistreurAudio ??= FlutterSoundRecorder(logLevel: Level.off);
+      await recorder.openRecorder();
+      if (await Permission.microphone.isGranted) {
+        await recorder.setSubscriptionDuration(
+          const Duration(milliseconds: 50),
+        );
+      }
+      _enregistreurAudioPret = true;
+      return true;
+    } catch (_) {
+      _enregistreurAudioPret = false;
+      return false;
     }
   }
 
@@ -374,33 +134,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         .collection('users')
         .doc(widget.autreUtilisateur.id)
         .snapshots()
-        .listen((snapshot) {
-      if (snapshot.exists) {
-        final data = snapshot.data() as Map<String, dynamic>;
-        final isOnline = data['isOnline'] ?? false;
-        final lastSeen = data['lastSeen'] != null
-            ? (data['lastSeen'] as Timestamp).toDate()
-            : DateTime.now();
+        .listen(
+          (snapshot) {
+            if (snapshot.exists) {
+              final data = snapshot.data() as Map<String, dynamic>;
+              final isOnline = data['isOnline'] ?? false;
+              final lastSeen =
+                  data['lastSeen'] != null
+                      ? (data['lastSeen'] as Timestamp).toDate()
+                      : DateTime.now();
 
-        if (mounted) {
-          setState(() {
-            _autreUtilisateurEnLigne = isOnline;
-            _derniereConnexion = lastSeen;
-          });
-        }
-      }
-    });
+              if (mounted) {
+                setState(() {
+                  _autreUtilisateurEnLigne = isOnline;
+                  _derniereConnexion = lastSeen;
+                });
+              }
+            }
+          },
+          onError: (_) {
+            if (mounted) {
+              setState(() {
+                _autreUtilisateurEnLigne = widget.autreUtilisateur.isOnline;
+                _derniereConnexion = widget.autreUtilisateur.lastSeen;
+              });
+            }
+          },
+        );
   }
 
   void _initialiserChat() {
-    _idConversation = _chatService.genererIdConversation(
-      widget.utilisateurCourant.id,
-      widget.autreUtilisateur.id,
-    );
+    _idConversation =
+        widget.conversationId ??
+        _chatService.genererIdConversation(
+          widget.utilisateurCourant.id,
+          widget.autreUtilisateur.id,
+          role1: _currentRole,
+          role2: _otherRole,
+          context: widget.conversationContext,
+        );
 
     _chatService.verifierOuCreerConversation(
       _idConversation,
       [widget.utilisateurCourant.id, widget.autreUtilisateur.id],
+      participantRoles: {
+        widget.utilisateurCourant.id: _currentRole,
+        widget.autreUtilisateur.id: _otherRole,
+      },
+      participantNames: {
+        widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+        widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+      },
+      participantPhotos: {
+        widget.utilisateurCourant.id: widget.utilisateurCourant.safePhotoUrl,
+        widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
+      },
+      context: widget.conversationContext,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -415,9 +204,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _ecouteurDefilement() {
     if (_scrollController.position.pixels <
         _scrollController.position.maxScrollExtent - 100) {
-      if (!_montrerBoutonDefilementBas) setState(() => _montrerBoutonDefilementBas = true);
+      if (!_montrerBoutonDefilementBas) {
+        setState(() => _montrerBoutonDefilementBas = true);
+      }
     } else {
-      if (_montrerBoutonDefilementBas) setState(() => _montrerBoutonDefilementBas = false);
+      if (_montrerBoutonDefilementBas) {
+        setState(() => _montrerBoutonDefilementBas = false);
+      }
     }
   }
 
@@ -444,6 +237,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         type: TypeMessage.texte,
         nomExpediteur: widget.utilisateurCourant.displayName,
         imageExpediteur: widget.utilisateurCourant.photoUrl,
+        senderRole: _currentRole,
+        receiverRole: _otherRole,
+        context: widget.conversationContext,
+        participantNames: {
+          widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+          widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+        },
+        participantPhotos: {
+          widget.utilisateurCourant.id: widget.utilisateurCourant.safePhotoUrl,
+          widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
+        },
       );
       _messageController.clear();
       _defilerVersBas();
@@ -475,6 +279,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           image: File(image.path),
           nomExpediteur: widget.utilisateurCourant.displayName,
           imageExpediteur: widget.utilisateurCourant.photoUrl,
+          senderRole: _currentRole,
+          receiverRole: _otherRole,
+          context: widget.conversationContext,
+          participantNames: {
+            widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+          },
+          participantPhotos: {
+            widget.utilisateurCourant.id:
+                widget.utilisateurCourant.safePhotoUrl,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
+          },
         );
         _defilerVersBas();
       }
@@ -490,7 +306,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       final video = await _imagePicker.pickVideo(source: ImageSource.gallery);
       if (video != null) {
-        const videoUrl = 'https://example.com/uploaded_video.mp4';
+        final file = File(video.path);
+        final videoUrl = await _uploaderFichier(file, 'videos');
         await _chatService.envoyerMessage(
           idConversation: _idConversation,
           idDestinataire: widget.autreUtilisateur.id,
@@ -498,6 +315,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           type: TypeMessage.video,
           nomExpediteur: widget.utilisateurCourant.displayName,
           imageExpediteur: widget.utilisateurCourant.photoUrl,
+          senderRole: _currentRole,
+          receiverRole: _otherRole,
+          context: widget.conversationContext,
+          participantNames: {
+            widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+          },
+          participantPhotos: {
+            widget.utilisateurCourant.id:
+                widget.utilisateurCourant.safePhotoUrl,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
+          },
+          metadonnees: {
+            'nomFichier': video.name,
+            'taille': await file.length(),
+          },
         );
         _defilerVersBas();
       }
@@ -539,17 +372,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _montrerImagePleinEcran(String imageUrl) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        insetPadding: EdgeInsets.zero,
-        child: InteractiveViewer(
-          minScale: 0.1,
-          maxScale: 4.0,
-          child: CachedNetworkImage(
-            imageUrl: imageUrl,
-            fit: BoxFit.contain,
+      builder:
+          (context) => Dialog(
+            insetPadding: EdgeInsets.zero,
+            child: InteractiveViewer(
+              minScale: 0.1,
+              maxScale: 4.0,
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.contain,
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -585,12 +419,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return '${(bytes / pow(1024, i)).toStringAsFixed(1)} ${suffixes[i]}';
   }
 
-  Future<void> _demanderPermissionLocalisation() async {
-    if (await Permission.location.isDenied) {
-      await Permission.location.request();
-    }
-  }
-
   void _montrerErreurSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -611,99 +439,106 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       controller: _scrollController,
       index: index,
       child: Padding(
-        padding: EdgeInsets.only(
-          top: 8,
-          bottom: estDernier ? 16 : 8,
-        ),
-        child: Align(
-          alignment: estMoi ? Alignment.centerRight : Alignment.centerLeft,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!estMoi && estDernier)
-                Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  child: CircleAvatar(
-                    radius: 16,
-                    backgroundImage: CachedNetworkImageProvider(
-                      widget.autreUtilisateur.safePhotoUrl,
-                    ),
-                  ),
-                ),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.78,
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: estMoi ? widget.primaryColor : Colors.grey[100],
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(16),
-                      topRight: const Radius.circular(16),
-                      bottomLeft: estMoi
-                          ? const Radius.circular(16)
-                          : const Radius.circular(4),
-                      bottomRight: estMoi
-                          ? const Radius.circular(4)
-                          : const Radius.circular(16),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (!estMoi && !estDernier)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            message.nomExpediteur ?? 'Inconnu',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                              color: estMoi ? Colors.white70 : Colors.grey[700],
-                            ),
-                          ),
-                        ),
-                      _construireContenuMessage(message, estMoi, index),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            DateFormat.Hm().format(message.horodatage.toDate()),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: estMoi ? Colors.white70 : Colors.grey[500],
-                            ),
-                          ),
-                          if (estMoi) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              message.statut == MessageStatut.lu
-                                  ? Icons.done_all
-                                  : Icons.done,
-                              size: 12,
-                              color: message.statut == MessageStatut.lu
-                                  ? Colors.blue[100]
-                                  : Colors.white70,
-                            ),
-                          ]
-                        ],
+        padding: EdgeInsets.only(top: 8, bottom: estDernier ? 16 : 8),
+        child: GestureDetector(
+          onLongPress: () => _ouvrirActionsMessage(message),
+          child: Align(
+            alignment: estMoi ? Alignment.centerRight : Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!estMoi && estDernier)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundImage: CachedNetworkImageProvider(
+                        widget.autreUtilisateur.safePhotoUrl,
                       ),
-                    ],
+                    ),
+                  ),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.78,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: estMoi ? widget.primaryColor : Colors.grey[100],
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(16),
+                        topRight: const Radius.circular(16),
+                        bottomLeft:
+                            estMoi
+                                ? const Radius.circular(16)
+                                : const Radius.circular(4),
+                        bottomRight:
+                            estMoi
+                                ? const Radius.circular(4)
+                                : const Radius.circular(16),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!estMoi && !estDernier)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              message.nomExpediteur ?? 'Inconnu',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                                color:
+                                    estMoi ? Colors.white70 : Colors.grey[700],
+                              ),
+                            ),
+                          ),
+                        _construireContenuMessage(message, estMoi, index),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              DateFormat.Hm().format(
+                                message.horodatage.toDate(),
+                              ),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color:
+                                    estMoi ? Colors.white70 : Colors.grey[500],
+                              ),
+                            ),
+                            if (estMoi) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                message.statut == MessageStatut.lu
+                                    ? Icons.done_all
+                                    : Icons.done,
+                                size: 12,
+                                color:
+                                    message.statut == MessageStatut.lu
+                                        ? Colors.blue[100]
+                                        : Colors.white70,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -711,6 +546,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _construireContenuMessage(Message message, bool estMoi, int index) {
+    if (message.isDeleted) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.block_rounded,
+            size: 16,
+            color: estMoi ? Colors.white70 : Colors.grey[600],
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Message supprimé',
+            style: TextStyle(
+              fontStyle: FontStyle.italic,
+              color: estMoi ? Colors.white70 : Colors.grey[700],
+            ),
+          ),
+        ],
+      );
+    }
     switch (message.type) {
       case TypeMessage.image:
         return GestureDetector(
@@ -722,23 +577,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               width: 200,
               height: 200,
               fit: BoxFit.cover,
-              placeholder: (_, __) => Container(
-                color: Colors.grey[300],
-                width: 200,
-                height: 200,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-              errorWidget: (_, __, ___) => Container(
-                color: Colors.grey[300],
-                width: 200,
-                height: 200,
-                child: const Icon(Icons.broken_image, color: Colors.grey),
-              ),
+              placeholder:
+                  (_, _) => Container(
+                    color: Colors.grey[300],
+                    width: 200,
+                    height: 200,
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+              errorWidget:
+                  (_, _, _) => Container(
+                    color: Colors.grey[300],
+                    width: 200,
+                    height: 200,
+                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                  ),
             ),
           ),
         );
 
       case TypeMessage.video:
+        final miniatureVideo = _obtenirMiniatureVideo(message.contenu);
         return GestureDetector(
           onTap: () => _ouvrirLecteurVideo(message.contenu),
           child: Container(
@@ -753,28 +611,42 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: _obtenirMiniatureVideo(message.contenu),
-                    width: 200,
-                    height: 150,
-                    fit: BoxFit.cover,
-                  ),
+                  child:
+                      miniatureVideo == null
+                          ? const _VideoThumbnailFallback()
+                          : CachedNetworkImage(
+                            imageUrl: miniatureVideo,
+                            width: 200,
+                            height: 150,
+                            fit: BoxFit.cover,
+                            placeholder:
+                                (_, _) => const _VideoThumbnailFallback(),
+                            errorWidget:
+                                (_, _, _) => const _VideoThumbnailFallback(),
+                          ),
                 ),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.4),
+                    color: Colors.black.withValues(alpha: 0.4),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.play_arrow, size: 40, color: Colors.white),
+                  child: const Icon(
+                    Icons.play_arrow,
+                    size: 40,
+                    color: Colors.white,
+                  ),
                 ),
                 Positioned(
                   bottom: 8,
                   right: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
+                      color: Colors.black.withValues(alpha: 0.6),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text(
@@ -793,9 +665,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         );
 
       case TypeMessage.audio:
-        final duration = message.metadonnees?['duree'] != null
-            ? Duration(seconds: message.metadonnees!['duree'])
-            : const Duration(seconds: 0);
+        final duration =
+            message.metadonnees?['duree'] != null
+                ? Duration(seconds: message.metadonnees!['duree'])
+                : const Duration(seconds: 0);
 
         return GestureDetector(
           onTap: () => _jouerAudio(message.contenu, index),
@@ -853,7 +726,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.insert_drive_file,
+                Icon(
+                  Icons.insert_drive_file,
                   size: 40,
                   color: estMoi ? Colors.white : widget.primaryColor,
                 ),
@@ -869,7 +743,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     Text(
-                      _formaterTailleFichier(message.metadonnees?['taille'] ?? 0),
+                      _formaterTailleFichier(
+                        message.metadonnees?['taille'] ?? 0,
+                      ),
                       style: TextStyle(
                         fontSize: 12,
                         color: estMoi ? Colors.white70 : Colors.grey[700],
@@ -891,17 +767,37 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return _construireApercuLocalisation(lat, lng, estMoi);
 
       default:
-        return Text(
-          message.contenu,
-          style: TextStyle(
-            fontSize: 16,
-            color: estMoi ? Colors.white : Colors.black,
-          ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message.contenu,
+              style: TextStyle(
+                fontSize: 16,
+                color: estMoi ? Colors.white : Colors.black,
+              ),
+            ),
+            if (message.isEdited)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                  'modifié',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: estMoi ? Colors.white70 : Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+          ],
         );
     }
   }
 
-  Widget _construireApercuProduit(Map<String, dynamic> metadonnees, bool estMoi) {
+  Widget _construireApercuProduit(
+    Map<String, dynamic> metadonnees,
+    bool estMoi,
+  ) {
     return GestureDetector(
       onTap: () => _montrerDetailsProduit(metadonnees),
       child: Container(
@@ -911,26 +807,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
+              color: Colors.grey.withValues(alpha: 0.2),
               blurRadius: 5,
               spreadRadius: 1,
-            )
+            ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
               child: CachedNetworkImage(
                 imageUrl: metadonnees['imageUrl'] ?? '',
                 height: 150,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => Container(
-                  color: Colors.grey[300],
-                  height: 150,
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
+                placeholder:
+                    (_, _) => Container(
+                      color: Colors.grey[300],
+                      height: 150,
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
               ),
             ),
             Padding(
@@ -960,7 +859,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   OutlinedButton(
                     onPressed: () => _montrerDetailsProduit(metadonnees),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: estMoi ? Colors.white : widget.primaryColor,
+                      foregroundColor:
+                          estMoi ? Colors.white : widget.primaryColor,
                       side: BorderSide(
                         color: estMoi ? Colors.white : widget.primaryColor,
                       ),
@@ -978,7 +878,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _construireApercuLocalisation(double lat, double lng, bool estMoi) {
     const apiKey = 'VOTRE_CLE_API_GOOGLE_MAPS';
-    final staticMapUrl = "https://maps.googleapis.com/maps/api/staticmap?"
+    final staticMapUrl =
+        "https://maps.googleapis.com/maps/api/staticmap?"
         "center=$lat,$lng"
         "&zoom=15"
         "&size=300x150"
@@ -1005,12 +906,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               width: 250,
               height: 150,
               fit: BoxFit.cover,
-              placeholder: (_, __) => Container(
-                color: Colors.grey[300],
-                width: 250,
-                height: 150,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
+              placeholder:
+                  (_, _) => Container(
+                    color: Colors.grey[300],
+                    width: 250,
+                    height: 150,
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
             ),
           ),
           const SizedBox(height: 8),
@@ -1026,12 +928,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  String _obtenirMiniatureVideo(String videoUrl) {
+  String? _obtenirMiniatureVideo(String videoUrl) {
     if (videoUrl.contains('youtube.com') || videoUrl.contains('youtu.be')) {
       final videoId = _extraireIdYouTube(videoUrl);
+      if (videoId == null || videoId.isEmpty) return null;
       return 'https://img.youtube.com/vi/$videoId/0.jpg';
     }
-    return 'https://via.placeholder.com/200x150?text=Miniature+Video';
+    return null;
   }
 
   String? _extraireIdYouTube(String url) {
@@ -1048,7 +951,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ProductDetailScreen(produit: produit),
+        builder:
+            (context) => ProductDetailScreen(
+              produit: produit,
+              onOrder: () => _preparerCommandeDepuisProduit(produit),
+            ),
+      ),
+    );
+  }
+
+  void _preparerCommandeDepuisProduit(Produit produit) {
+    Navigator.pop(context);
+    _messageController.text =
+        'Bonjour, je suis intéressé(e) par "${produit.nom}". Est-ce toujours disponible ?';
+    _focusNode.requestFocus();
+  }
+
+  void _ouvrirProfilInterlocuteur() {
+    final user = widget.autreUtilisateur;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (_) =>
+                user.isCreator
+                    ? CreateurProfileScreen(userId: user.id)
+                    : ClientProfileScreen(userId: user.id),
       ),
     );
   }
@@ -1069,10 +997,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 12,
             offset: const Offset(0, -4),
-          )
+          ),
         ],
       ),
       child: SafeArea(
@@ -1100,7 +1028,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         decoration: InputDecoration(
                           hintText: 'Écrivez un message...',
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                          ),
                         ),
                         onChanged: (text) {
                           _typingTimer?.cancel();
@@ -1137,6 +1067,177 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  Widget _construireCarteContexte() {
+    final contextData = widget.conversationContext;
+    if (!contextData.hasContent) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: widget.primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child:
+                contextData.imageUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                      imageUrl: contextData.imageUrl,
+                      fit: BoxFit.cover,
+                    )
+                    : Icon(
+                      _contextIcon(contextData.type),
+                      color: widget.primaryColor,
+                    ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _contextLabel(contextData.type),
+                  style: TextStyle(
+                    color: widget.primaryColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+                Text(
+                  contextData.title.isEmpty
+                      ? 'Conversation ${_contextLabel(contextData.type).toLowerCase()}'
+                      : contextData.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (contextData.subtitle.isNotEmpty)
+                  Text(
+                    contextData.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construireReponsesRapides() {
+    final replies = _quickRepliesForRole(
+      _currentRole,
+      widget.conversationContext.type,
+    );
+    if (replies.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        scrollDirection: Axis.horizontal,
+        itemCount: replies.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final reply = replies[index];
+          return ActionChip(
+            avatar: Icon(
+              Icons.reply_rounded,
+              size: 16,
+              color: widget.primaryColor,
+            ),
+            label: Text(reply),
+            labelStyle: const TextStyle(fontWeight: FontWeight.w800),
+            backgroundColor: Colors.white,
+            side: BorderSide(color: Colors.grey.shade200),
+            onPressed:
+                () => setState(() {
+                  _messageController.text = reply;
+                  _messageController.selection = TextSelection.collapsed(
+                    offset: reply.length,
+                  );
+                }),
+          );
+        },
+      ),
+    );
+  }
+
+  List<String> _quickRepliesForRole(String role, String contextType) {
+    if (contextType == ConversationContextTypes.secondhand) {
+      return const [
+        'La pièce est-elle disponible ?',
+        'Je peux la réserver ?',
+        'Où peut-on se retrouver ?',
+      ];
+    }
+    if (role == 'boutique') {
+      return const [
+        'Produit disponible',
+        'Envoyez la preuve de paiement',
+        'Commande confirmée',
+      ];
+    }
+    if (role == 'createur') {
+      return const [
+        'Je peux le réaliser',
+        'Envoyez vos mensurations',
+        'Proposons un RDV',
+      ];
+    }
+    return const [
+      'Je suis intéressé',
+      'Quel est le délai ?',
+      'Puis-je personnaliser ?',
+    ];
+  }
+
+  IconData _contextIcon(String type) {
+    return switch (type) {
+      ConversationContextTypes.product => AppIcons.shop,
+      ConversationContextTypes.creation => AppIcons.creations,
+      ConversationContextTypes.secondhand => Icons.recycling_rounded,
+      ConversationContextTypes.order => Icons.receipt_long_rounded,
+      ConversationContextTypes.appointment => Icons.event_rounded,
+      ConversationContextTypes.measurement => Icons.straighten_rounded,
+      ConversationContextTypes.support => Icons.support_agent_rounded,
+      _ => Icons.chat_bubble_rounded,
+    };
+  }
+
+  String _contextLabel(String type) {
+    return switch (type) {
+      ConversationContextTypes.product => 'Produit',
+      ConversationContextTypes.creation => 'Création',
+      ConversationContextTypes.secondhand => 'Vide-dressing',
+      ConversationContextTypes.order => 'Commande',
+      ConversationContextTypes.appointment => 'Rendez-vous',
+      ConversationContextTypes.measurement => 'Mensurations',
+      ConversationContextTypes.support => 'Support',
+      _ => 'Discussion',
+    };
   }
 
   Widget _construireBoutonPlus() {
@@ -1206,12 +1307,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           IconButton(
             icon: const Icon(Icons.close, color: Colors.red),
-            onPressed: () {
-              _enregistrementAudioEnCours = false;
-              _recordingTimer?.cancel();
-              _enregistreurAudio.stopRecorder();
-              setState(() {});
-            },
+            onPressed: _annulerEnregistrementAudio,
           ),
         ],
       ),
@@ -1228,7 +1324,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _enregistrementAudioEnCours = false;
         _recordingTimer?.cancel();
       });
-      await _enregistreurAudio.stopRecorder();
+      await _enregistreurAudio?.stopRecorder();
       if (_cheminFichierAudio != null) {
         await _envoyerFichierAudio(_cheminFichierAudio!);
       }
@@ -1240,29 +1336,46 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
 
+    final ready = await _initialiserEnregistreurAudio();
+    if (!ready) {
+      _montrerErreurSnackbar('Micro indisponible pour le moment');
+      return;
+    }
+
     setState(() {
       _enregistrementAudioEnCours = true;
       _recordingStartTime = DateTime.now();
       _recordingAmplitude = 0.0;
-      _audioDuration = null;
     });
 
     _demarrerTimerEnregistrement();
 
     final tempDir = await getTemporaryDirectory();
-    _cheminFichierAudio = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.aac';
+    _cheminFichierAudio =
+        '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.aac';
 
-    await _enregistreurAudio.startRecorder(
+    await _enregistreurAudio?.startRecorder(
       toFile: _cheminFichierAudio,
       codec: Codec.aacADTS,
     );
   }
 
+  Future<void> _annulerEnregistrementAudio() async {
+    _recordingTimer?.cancel();
+    if (mounted) {
+      setState(() => _enregistrementAudioEnCours = false);
+    } else {
+      _enregistrementAudioEnCours = false;
+    }
+    await _enregistreurAudio?.stopRecorder();
+  }
+
   void _demarrerTimerEnregistrement() {
-    _recordingTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    _recordingTimer = Timer.periodic(const Duration(milliseconds: 100), (
+      timer,
+    ) {
       setState(() {
         _recordingAmplitude = 0.1 + Random().nextDouble() * 0.8;
-        _audioDuration = _calculateRecordingDuration();
       });
     });
   }
@@ -1281,6 +1394,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         nomExpediteur: widget.utilisateurCourant.displayName,
         imageExpediteur: widget.utilisateurCourant.photoUrl,
         metadonnees: {'duree': _calculateRecordingDuration().inSeconds},
+        senderRole: _currentRole,
+        receiverRole: _otherRole,
+        context: widget.conversationContext,
       );
       _defilerVersBas();
     } catch (e) {
@@ -1292,10 +1408,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<String> _uploaderFichier(File file, String dossier) async {
     try {
-      final nomFichier = '${dossier}/${DateTime.now().millisecondsSinceEpoch}_${widget.utilisateurCourant.id}';
-      final ref = _storage.ref().child(nomFichier);
-      await ref.putFile(file);
-      return await ref.getDownloadURL();
+      final upload = await _mediaUploadService.uploadFile(
+        file: file,
+        folder: 'messages/${widget.utilisateurCourant.id}/$dossier',
+        publicId: '${DateTime.now().millisecondsSinceEpoch}',
+      );
+      await MediaAssetService().recordUpload(
+        upload: upload,
+        ownerId: widget.utilisateurCourant.id,
+        ownerRole: 'client',
+        usage: 'message_$dossier',
+        status: 'private',
+        linkedCollection: 'conversations',
+      );
+      return upload.resourceType == 'image' ? upload.optimizedUrl : upload.url;
     } catch (e) {
       throw Exception('Échec de l\'upload: $e');
     }
@@ -1307,7 +1433,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'],
+        allowedExtensions: ['pdf', 'docx', 'xlsx', 'pptx'],
       );
 
       if (result != null && result.files.isNotEmpty) {
@@ -1331,9 +1457,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           type: TypeMessage.document,
           nomExpediteur: widget.utilisateurCourant.displayName,
           imageExpediteur: widget.utilisateurCourant.photoUrl,
-          metadonnees: {
-            'nomFichier': selectedFile.name,
-            'taille': fileSize,
+          metadonnees: {'nomFichier': selectedFile.name, 'taille': fileSize},
+          senderRole: _currentRole,
+          receiverRole: _otherRole,
+          context: widget.conversationContext,
+          participantNames: {
+            widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+          },
+          participantPhotos: {
+            widget.utilisateurCourant.id:
+                widget.utilisateurCourant.safePhotoUrl,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
           },
         );
 
@@ -1365,6 +1500,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         produit: produit,
         nomExpediteur: widget.utilisateurCourant.displayName,
         imageExpediteur: widget.utilisateurCourant.photoUrl,
+        senderRole: _currentRole,
+        receiverRole: _otherRole,
+        context: widget.conversationContext,
+        participantNames: {
+          widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+          widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+        },
+        participantPhotos: {
+          widget.utilisateurCourant.id: widget.utilisateurCourant.safePhotoUrl,
+          widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
+        },
       );
       _defilerVersBas();
     } catch (e) {
@@ -1391,6 +1537,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           longitude: _positionActuelle!.longitude,
           nomExpediteur: widget.utilisateurCourant.displayName,
           imageExpediteur: widget.utilisateurCourant.photoUrl,
+          senderRole: _currentRole,
+          receiverRole: _otherRole,
+          context: widget.conversationContext,
+          participantNames: {
+            widget.utilisateurCourant.id: widget.utilisateurCourant.mainName,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.mainName,
+          },
+          participantPhotos: {
+            widget.utilisateurCourant.id:
+                widget.utilisateurCourant.safePhotoUrl,
+            widget.autreUtilisateur.id: widget.autreUtilisateur.safePhotoUrl,
+          },
         );
         _defilerVersBas();
       }
@@ -1408,72 +1566,75 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 16,
-              spreadRadius: 0,
-            )
-          ],
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Container(
-                  width: 48,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+      builder:
+          (context) => Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-              Wrap(
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 16,
+                  spreadRadius: 0,
+                ),
+              ],
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _construireOptionFichier(
-                    icone: Icons.photo,
-                    libelle: 'Galerie',
-                    couleur: Colors.blue,
-                    onTap: _envoyerImage,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Container(
+                      width: 48,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
-                  _construireOptionFichier(
-                    icone: Icons.videocam,
-                    libelle: 'Vidéo',
-                    couleur: Colors.purple,
-                    onTap: _envoyerVideo,
+                  Wrap(
+                    children: [
+                      _construireOptionFichier(
+                        icone: Icons.photo,
+                        libelle: 'Galerie',
+                        couleur: Colors.blue,
+                        onTap: _envoyerImage,
+                      ),
+                      _construireOptionFichier(
+                        icone: Icons.videocam,
+                        libelle: 'Vidéo',
+                        couleur: Colors.purple,
+                        onTap: _envoyerVideo,
+                      ),
+                      _construireOptionFichier(
+                        icone: Icons.insert_drive_file,
+                        libelle: 'Document',
+                        couleur: Colors.orange,
+                        onTap: _envoyerDocument,
+                      ),
+                      _construireOptionFichier(
+                        icone: AppIcons.shop,
+                        libelle: 'Produit',
+                        couleur: Colors.teal,
+                        onTap: _envoyerProduit,
+                      ),
+                      _construireOptionFichier(
+                        icone: Icons.location_on,
+                        libelle: 'Localisation',
+                        couleur: Colors.red,
+                        onTap: _envoyerLocalisation,
+                      ),
+                    ],
                   ),
-                  _construireOptionFichier(
-                    icone: Icons.insert_drive_file,
-                    libelle: 'Document',
-                    couleur: Colors.orange,
-                    onTap: _envoyerDocument,
-                  ),
-                  _construireOptionFichier(
-                    icone: Icons.shopping_bag,
-                    libelle: 'Produit',
-                    couleur: Colors.teal,
-                    onTap: _envoyerProduit,
-                  ),
-                  _construireOptionFichier(
-                    icone: Icons.location_on,
-                    libelle: 'Localisation',
-                    couleur: Colors.red,
-                    onTap: _envoyerLocalisation,
-                  ),
+                  const SizedBox(height: 16),
                 ],
               ),
-              const SizedBox(height: 16),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -1498,7 +1659,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: couleur.withOpacity(0.1),
+                  color: couleur.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icone, color: couleur, size: 24),
@@ -1521,10 +1682,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _construireIndicateurSaisie() {
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('conversations')
-          .doc(_idConversation)
-          .snapshots(),
+      stream:
+          FirebaseFirestore.instance
+              .collection('conversations')
+              .doc(_idConversation)
+              .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || !snapshot.data!.exists) {
           return const SizedBox.shrink();
@@ -1537,49 +1699,50 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           height: saisieEnCours ? 30 : 0,
-          child: saisieEnCours
-              ? Padding(
-            padding: const EdgeInsets.only(left: 16, bottom: 4),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 12,
-                        backgroundImage: CachedNetworkImageProvider(
-                          widget.autreUtilisateur.safePhotoUrl,
-                        ),
-                      ),
-                      const Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: CircleAvatar(
-                          radius: 6,
-                          backgroundColor: Colors.white,
-                          child: CircleAvatar(
-                            radius: 4,
-                            backgroundColor: Colors.green,
+          child:
+              saisieEnCours
+                  ? Padding(
+                    padding: const EdgeInsets.only(left: 16, bottom: 4),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 12,
+                                backgroundImage: CachedNetworkImageProvider(
+                                  widget.autreUtilisateur.safePhotoUrl,
+                                ),
+                              ),
+                              const Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: CircleAvatar(
+                                  radius: 6,
+                                  backgroundColor: Colors.white,
+                                  child: CircleAvatar(
+                                    radius: 4,
+                                    backgroundColor: Colors.green,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      )
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${widget.autreUtilisateur.displayName} écrit...',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-          )
-              : const SizedBox.shrink(),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${widget.autreUtilisateur.displayName} écrit...',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                  : const SizedBox.shrink(),
         );
       },
     );
@@ -1599,7 +1762,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             margin: const EdgeInsets.all(8),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: estMoi ? widget.primaryColor.withOpacity(0.2) : Colors.grey[200],
+              color:
+                  estMoi
+                      ? widget.primaryColor.withValues(alpha: 0.2)
+                      : Colors.grey[200],
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
@@ -1618,11 +1784,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   color: Colors.white,
                 ),
                 const SizedBox(height: 8),
-                Container(
-                  width: 80,
-                  height: 10,
-                  color: Colors.white,
-                ),
+                Container(width: 80, height: 10, color: Colors.white),
               ],
             ),
           ),
@@ -1634,23 +1796,152 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _montrerDialogueViderHistorique() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Vider l\'historique'),
-        content: const Text('Êtes-vous sûr de vouloir supprimer tous les messages de cette conversation ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Vider l\'historique'),
+            content: const Text(
+              'Êtes-vous sûr de vouloir supprimer tous les messages de cette conversation ?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: () {
+                  _chatService.effacerHistoriqueChat(_idConversation);
+                  Navigator.pop(context);
+                },
+                child: const Text(
+                  'Supprimer',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              _chatService.effacerHistoriqueChat(_idConversation);
-              Navigator.pop(context);
-            },
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+    );
+  }
+
+  Future<void> _archiverConversation() async {
+    await _chatService.archiverConversation(
+      _idConversation,
+      widget.utilisateurCourant.id,
+    );
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  Future<void> _bloquerConversation() async {
+    await _chatService.bloquerConversation(
+      _idConversation,
+      widget.utilisateurCourant.id,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Conversation bloquée')));
+    Navigator.pop(context);
+  }
+
+  Future<void> _modifierMessage(Message message) async {
+    final controller = TextEditingController(text: message.contenu);
+    final updated = await showDialog<String>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Modifier le message'),
+            content: TextField(
+              controller: controller,
+              minLines: 2,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Message',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('Enregistrer'),
+              ),
+            ],
           ),
-        ],
-      ),
+    );
+    controller.dispose();
+    if (updated == null || updated.isEmpty || updated == message.contenu) {
+      return;
+    }
+    await _chatService.modifierMessage(messageId: message.id, contenu: updated);
+  }
+
+  Future<void> _supprimerMessage(Message message) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Supprimer le message ?'),
+            content: const Text(
+              'Le message sera retiré de la conversation, avec une trace de suppression.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Supprimer'),
+              ),
+            ],
+          ),
+    );
+    if (confirm == true) {
+      await _chatService.supprimerMessage(message.id);
+    }
+  }
+
+  void _ouvrirActionsMessage(Message message) {
+    final estMoi = message.idExpediteur == widget.utilisateurCourant.id;
+    if (!estMoi || message.isDeleted || message.type != TypeMessage.texte) {
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.edit_rounded),
+                  title: const Text('Modifier'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _modifierMessage(message);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.red,
+                  ),
+                  title: const Text(
+                    'Supprimer',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _supprimerMessage(message);
+                  },
+                ),
+              ],
+            ),
+          ),
     );
   }
 
@@ -1679,12 +1970,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ),
         title: InkWell(
-          onTap: () {},
+          onTap: _ouvrirProfilInterlocuteur,
+          borderRadius: BorderRadius.circular(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.autreUtilisateur.displayName,
+                widget.autreUtilisateur.mainName,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -1698,7 +1990,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: _autreUtilisateurEnLigne ? Colors.green : Colors.grey,
+                      color:
+                          _autreUtilisateurEnLigne ? Colors.green : Colors.grey,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1709,10 +2002,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         : _derniereConnexion != null
                         ? 'Vu à ${DateFormat.Hm().format(_derniereConnexion!)}'
                         : 'Hors ligne',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ],
               ),
@@ -1722,17 +2012,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.black),
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'clear',
-                child: ListTile(
-                  leading: Icon(Icons.delete, color: Colors.red),
-                  title: Text('Vider l\'historique', style: TextStyle(color: Colors.red)),
-                ),
-              ),
-            ],
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem(
+                    value: 'archive',
+                    child: ListTile(
+                      leading: Icon(Icons.archive_outlined),
+                      title: Text('Archiver'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'clear',
+                    child: ListTile(
+                      leading: Icon(Icons.delete_outline, color: Colors.red),
+                      title: Text(
+                        'Vider l’historique',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'block',
+                    child: ListTile(
+                      leading: Icon(Icons.block, color: Colors.red),
+                      title: Text(
+                        'Bloquer',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ),
+                ],
             onSelected: (value) {
+              if (value == 'archive') _archiverConversation();
               if (value == 'clear') _montrerDialogueViderHistorique();
+              if (value == 'block') _bloquerConversation();
             },
           ),
         ],
@@ -1741,26 +2054,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         decoration: BoxDecoration(
           color: Colors.grey[50],
           image: const DecorationImage(
-            image: NetworkImage('https://www.transparenttextures.com/patterns/light-wool.png'),
+            image: NetworkImage(
+              'https://www.transparenttextures.com/patterns/light-wool.png',
+            ),
             fit: BoxFit.cover,
             opacity: 0.05,
           ),
         ),
         child: Column(
           children: [
+            _construireCarteContexte(),
             Expanded(
               child: GestureDetector(
                 onTap: () => FocusScope.of(context).unfocus(),
                 child: Stack(
                   children: [
                     StreamBuilder<QuerySnapshot>(
-                      stream: _chatService.streamMessages(_idConversation),
+                      stream: _chatService.streamMessages(
+                        _idConversation,
+                        limit: _messagesPageSize,
+                      ),
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
-                          return Center(child: Text('Erreur: ${snapshot.error}'));
+                          debugPrint(
+                            'Erreur chargement messages: ${snapshot.error}',
+                          );
+                          return const Center(
+                            child: Text('Messages indisponibles.'),
+                          );
                         }
 
-                        if (snapshot.connectionState == ConnectionState.waiting) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
                           return _construireMessagesChargement();
                         }
 
@@ -1772,17 +2097,43 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           );
                         }
 
-                        return ListView.builder(
-                          reverse: true,
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            return _construireBulleMessage(
-                              messages[index],
-                              messages.length - 1 - index,
-                            );
-                          },
+                        return Column(
+                          children: [
+                            if (messages.length >= _messagesPageSize)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  4,
+                                ),
+                                child: Text(
+                                  'Les $_messagesPageSize derniers messages sont affichés pour garder la discussion fluide.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            Expanded(
+                              child: ListView.builder(
+                                reverse: true,
+                                controller: _scrollController,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                itemCount: messages.length,
+                                itemBuilder: (context, index) {
+                                  return _construireBulleMessage(
+                                    messages[index],
+                                    messages.length - 1 - index,
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         );
                       },
                     ),
@@ -1792,10 +2143,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         bottom: 20,
                         right: 20,
                         child: FloatingActionButton(
+                          heroTag: null,
                           backgroundColor: Colors.white,
                           mini: true,
                           onPressed: _defilerVersBas,
-                          child: Icon(Icons.arrow_downward, color: widget.primaryColor),
+                          child: Icon(
+                            Icons.arrow_downward,
+                            color: widget.primaryColor,
+                          ),
                         ),
                       ),
                   ],
@@ -1804,6 +2159,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
 
             _construireIndicateurSaisie(),
+
+            _construireReponsesRapides(),
 
             _construireZoneSaisie(),
           ],
@@ -1817,11 +2174,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _chatService.mettreAJourPresence(widget.utilisateurCourant.id, false);
     _audioPlayer.dispose();
-    _enregistreurAudio.closeRecorder();
+    _enregistreurAudio?.closeRecorder();
     _scrollController.dispose();
     _typingTimer?.cancel();
     _recordingTimer?.cancel();
     _presenceSubscription?.cancel();
     super.dispose();
+  }
+}
+
+class _VideoThumbnailFallback extends StatelessWidget {
+  const _VideoThumbnailFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 200,
+      height: 150,
+      color: Colors.black26,
+      child: const Center(
+        child: Icon(Icons.videocam_rounded, color: Colors.white70, size: 34),
+      ),
+    );
   }
 }

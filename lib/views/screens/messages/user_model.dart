@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/account_roles.dart';
+
 class UserModel {
   // Core properties
   final String id;
@@ -78,14 +80,19 @@ class UserModel {
     return UserModel(
       id: docId ?? map['id']?.toString() ?? '',
       email: map['email']?.toString() ?? '',
-      displayName: map['displayName']?.toString() ??
+      displayName:
+          map['displayName']?.toString() ??
           map['name']?.toString() ??
           map['boutiqueName']?.toString() ??
           'Utilisateur',
-      role: map['role']?.toString() ?? 'client',
+      role: AccountRoles.activeRole(map),
       photoUrl: map['photoUrl']?.toString(),
-      following: List<String>.from(map['following']?.map((e) => e.toString()) ?? []),
-      followers: List<String>.from(map['followers']?.map((e) => e.toString()) ?? []),
+      following: List<String>.from(
+        map['following']?.map((e) => e.toString()) ?? [],
+      ),
+      followers: List<String>.from(
+        map['followers']?.map((e) => e.toString()) ?? [],
+      ),
       followingCount: (map['followingCount'] as int?) ?? 0,
       followersCount: (map['followersCount'] as int?) ?? 0,
       phone: map['phone']?.toString() ?? map['phoneNumber']?.toString(),
@@ -99,20 +106,18 @@ class UserModel {
       isOnline: (map['isOnline'] as bool?) ?? false,
       lastSeen: parseTimestamp(map['lastSeen']) ?? DateTime.now(),
       fcmToken: map['fcmToken']?.toString() ?? '',
-      preferences: map['preferences'] is Map
-          ? Map<String, dynamic>.from(map['preferences'])
-          : null,
+      preferences:
+          map['preferences'] is Map
+              ? Map<String, dynamic>.from(map['preferences'])
+              : null,
       createdAt: parseTimestamp(map['createdAt']) ?? DateTime.now(),
       updatedAt: parseTimestamp(map['updatedAt']) ?? DateTime.now(),
-      roles: List<String>.from(map['roles'] ?? []),
+      roles: AccountRoles.normalize(map),
     );
   }
 
   factory UserModel.fromDocument(DocumentSnapshot doc) {
-    return UserModel.fromMap(
-      doc.data() as Map<String, dynamic>,
-      docId: doc.id,
-    );
+    return UserModel.fromMap(doc.data() as Map<String, dynamic>, docId: doc.id);
   }
 
   Map<String, dynamic> toMap() {
@@ -145,11 +150,13 @@ class UserModel {
   }
 
   // Helper methods
-  bool get isBoutique => role == 'boutique';
-  bool get isAdmin => roles.contains('admin');
-  bool get isCustomer => !isBoutique;
+  bool get isBoutique => roles.contains(AccountRoles.boutique);
+  bool get isCreator => roles.contains(AccountRoles.createur);
+  bool get isAdmin => roles.contains(AccountRoles.admin);
+  bool get isCustomer => roles.contains(AccountRoles.client);
 
-  String get mainName => isBoutique ? (boutiqueName ?? displayName) : displayName;
+  String get mainName =>
+      isBoutique ? (boutiqueName ?? displayName) : displayName;
 
   String get lastSeenFormatted {
     final now = DateTime.now();
@@ -162,9 +169,7 @@ class UserModel {
     return DateFormat('dd/MM/yy HH:mm').format(lastSeen);
   }
 
-  String get statusText => isOnline
-      ? 'En ligne'
-      : 'Vu $lastSeenFormatted';
+  String get statusText => isOnline ? 'En ligne' : 'Vu $lastSeenFormatted';
 
   String get safePhotoUrl {
     return photoUrl?.isNotEmpty == true
@@ -193,6 +198,7 @@ class UserModel {
       email: email,
       displayName: displayName ?? email.split('@').first,
       role: 'client',
+      roles: const [AccountRoles.client],
       following: [],
       followers: [],
       followingCount: 0,
@@ -216,6 +222,7 @@ class UserModel {
       email: email ?? '',
       displayName: name,
       role: 'boutique',
+      roles: const [AccountRoles.client, AccountRoles.boutique],
       following: [],
       followers: [],
       followingCount: 0,
@@ -286,5 +293,6 @@ class UserModel {
   }
 
   @override
-  String toString() => 'UserModel($id, $displayName, ${isOnline ? "online" : "offline"})';
+  String toString() =>
+      'UserModel($id, $displayName, ${isOnline ? "online" : "offline"})';
 }

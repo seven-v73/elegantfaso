@@ -8,6 +8,7 @@ class Creation {
   final String category;
   final List<String> images;
   final double price;
+  final String currency;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -19,6 +20,7 @@ class Creation {
     required this.category,
     required this.images,
     this.price = 0.0,
+    this.currency = 'XOF',
     required this.createdAt,
     this.updatedAt,
   });
@@ -32,6 +34,7 @@ class Creation {
       'category': category,
       'images': images,
       'price': price,
+      'currency': currency,
       'createdAt': Timestamp.fromDate(createdAt),
       if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
     };
@@ -46,10 +49,17 @@ class Creation {
       title: data['title'] as String? ?? '',
       description: data['description'] as String? ?? '',
       category: data['category'] as String? ?? 'Autre',
-      images: (data['images'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      images:
+          (data['images'] as List<dynamic>? ?? [])
+              .map((e) => e.toString())
+              .toList(),
       price: (data['price'] as num?)?.toDouble() ?? 0.0,
+      currency: data['currency']?.toString() ?? 'XOF',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
-      updatedAt: data['updatedAt'] != null ? (data['updatedAt'] as Timestamp).toDate() : null,
+      updatedAt:
+          data['updatedAt'] != null
+              ? (data['updatedAt'] as Timestamp).toDate()
+              : null,
     );
   }
 
@@ -61,10 +71,19 @@ class Creation {
       title: json['title'] as String? ?? '',
       description: json['description'] as String? ?? '',
       category: json['category'] as String? ?? 'Autre',
-      images: (json['images'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      images:
+          (json['images'] as List<dynamic>? ?? [])
+              .map((e) => e.toString())
+              .toList(),
       price: (json['price'] as num?)?.toDouble() ?? 0.0,
-      createdAt: DateTime.parse(json['createdAt'] as String? ?? DateTime.now().toIso8601String()),
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt'] as String) : null,
+      currency: json['currency'] as String? ?? 'XOF',
+      createdAt: DateTime.parse(
+        json['createdAt'] as String? ?? DateTime.now().toIso8601String(),
+      ),
+      updatedAt:
+          json['updatedAt'] != null
+              ? DateTime.parse(json['updatedAt'] as String)
+              : null,
     );
   }
 
@@ -77,6 +96,7 @@ class Creation {
     String? category,
     List<String>? images,
     double? price,
+    String? currency,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -88,6 +108,7 @@ class Creation {
       category: category ?? this.category,
       images: images ?? this.images,
       price: price ?? this.price,
+      currency: currency ?? this.currency,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

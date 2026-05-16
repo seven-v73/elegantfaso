@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:logger/logger.dart';
-import 'package:flutter/foundation.dart';
-import 'dart:async';
+
+import '../../core/account_roles.dart';
+import '../../services/auth/welcome_email_service.dart';
+import '../../services/profile/public_profile_service.dart';
 
 enum AuthMethod { email, google }
 
@@ -26,21 +30,23 @@ class AuthRepository {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Logger _logger = Logger();
+  final WelcomeEmailService _welcomeEmailService = WelcomeEmailService();
+  final PublicProfileService _publicProfileService = PublicProfileService();
 
   bool _isProcessingAuth = false;
 
-  final List<String> allowedRoles = ['client', 'createur', 'boutique', 'admin'];
+  final List<String> allowedRoles = AccountRoles.all;
 
   String _getRouteForRole(String role) {
     switch (role) {
-      case 'client':
+      case AccountRoles.client:
         return '/home';
-      case 'createur':
+      case AccountRoles.createur:
         return '/creator-dashboard';
-      case 'boutique':
+      case AccountRoles.boutique:
         return '/shop-dashboard';
-      case 'admin':
-        return '/admin-dashboard';
+      case AccountRoles.admin:
+        return '/admin';
       default:
         return '/home';
     }
@@ -59,8 +65,9 @@ class AuthRepository {
       final userRef = _firestore.collection('users').doc(uid);
       final userDoc = await userRef.get();
 
-      final Map<String, dynamic> baseData = {
+      final baseData = <String, dynamic>{
         'name': name ?? '',
+        'displayName': name ?? '',
         'email': email ?? '',
         'photoUrl': photoUrl ?? '',
         'authMethod': authMethod.name,
@@ -71,68 +78,154 @@ class AuthRepository {
       bool isNewUser = false;
 
       if (isRegistration) {
-        if (role == null || !allowedRoles.contains(role)) {
-          throw FirebaseAuthException(
-            code: 'invalid-role',
-            message: 'Rôle utilisateur invalide ou manquant',
-          );
-        }
+        final requestedRole =
+            role != null && allowedRoles.contains(role)
+                ? role
+                : AccountRoles.client;
 
-        if (userDoc.exists) {
-          throw FirebaseAuthException(
-            code: 'user-already-exists',
-            message: 'Un compte existe déjà avec cet identifiant',
-          );
-        }
-
-        await userRef.set({
-          ...baseData,
-          'role': role,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        finalRole = role;
-        isNewUser = true;
-        _logger.i('Document utilisateur créé pour $uid avec rôle $role');
-      } else {
         if (userDoc.exists) {
           final existingData = userDoc.data() as Map<String, dynamic>;
-          finalRole = existingData['role'] ?? 'client';
-
-          final Map<String, dynamic> updateData = {};
+          final existingRole = AccountRoles.activeRole(existingData);
+          final updateData = <String, dynamic>{};
 
           if (name != null && name.isNotEmpty && existingData['name'] != name) {
             updateData['name'] = name;
+            updateData['displayName'] = name;
           }
-          if (email != null && email.isNotEmpty && existingData['email'] != email) {
+          if (email != null &&
+              email.isNotEmpty &&
+              existingData['email'] != email) {
             updateData['email'] = email;
-          }
-          if (photoUrl != null && photoUrl.isNotEmpty && existingData['photoUrl'] != photoUrl) {
-            updateData['photoUrl'] = photoUrl;
           }
           if (existingData['authMethod'] != authMethod.name) {
             updateData['authMethod'] = authMethod.name;
           }
-
+          if (existingData['roles'] == null) {
+            final roles = AccountRoles.normalize(existingData);
+            updateData['roles'] = roles;
+            updateData['roleFlags'] = AccountRoleService.roleFlags(roles);
+          }
           if (updateData.isNotEmpty) {
             updateData['updatedAt'] = FieldValue.serverTimestamp();
             await userRef.update(updateData);
-            _logger.i('Document utilisateur mis à jour pour $uid');
           }
+
+          finalRole = existingRole;
+          isNewUser = false;
+          _logger.i(
+            'Profil users/$uid déjà présent, inscription reprise sans doublon',
+          );
         } else {
-          finalRole = role ?? 'client';
-          isNewUser = true;
+          final roles = AccountRoles.normalize({
+            'role': requestedRole,
+            'roles': [requestedRole],
+          });
 
           await userRef.set({
             ...baseData,
-            'role': finalRole,
+            'role': requestedRole,
+            'activeRole': requestedRole,
+            'roles': roles,
+            'roleFlags': AccountRoleService.roleFlags(roles),
+            'stats': {
+              'productsCount': 0,
+              'creationsCount': 0,
+              'followersCount': 0,
+            },
             'createdAt': FieldValue.serverTimestamp(),
           });
-          _logger.i('Document utilisateur créé pour $uid avec rôle par défaut');
+
+          finalRole = requestedRole;
+          isNewUser = true;
+          _logger.i(
+            'Document utilisateur créé dans users/$uid avec rôle $requestedRole',
+          );
         }
+      } else if (userDoc.exists) {
+        final existingData = userDoc.data() as Map<String, dynamic>;
+        finalRole = AccountRoles.activeRole(existingData);
+        final existingRoles = AccountRoles.normalize(existingData);
+
+        final updateData = <String, dynamic>{};
+
+        if (name != null && name.isNotEmpty && existingData['name'] != name) {
+          updateData['name'] = name;
+          updateData['displayName'] = name;
+        }
+        if (email != null &&
+            email.isNotEmpty &&
+            existingData['email'] != email) {
+          updateData['email'] = email;
+        }
+        if (photoUrl != null &&
+            photoUrl.isNotEmpty &&
+            existingData['photoUrl'] != photoUrl) {
+          updateData['photoUrl'] = photoUrl;
+        }
+        if (existingData['authMethod'] != authMethod.name) {
+          updateData['authMethod'] = authMethod.name;
+        }
+        if (existingData['activeRole'] != finalRole) {
+          updateData['activeRole'] = finalRole;
+        }
+        if (existingData['roles'] == null) {
+          updateData['roles'] = existingRoles;
+        }
+        if (existingData['roleFlags'] == null) {
+          updateData['roleFlags'] = AccountRoleService.roleFlags(existingRoles);
+        }
+        if (existingData['stats'] == null) {
+          updateData['stats'] = {
+            'productsCount': existingData['productsCount'] ?? 0,
+            'creationsCount': existingData['creationsCount'] ?? 0,
+            'followersCount': existingData['followersCount'] ?? 0,
+          };
+        }
+
+        if (updateData.isNotEmpty) {
+          updateData['updatedAt'] = FieldValue.serverTimestamp();
+          await userRef.update(updateData);
+          _logger.i('Document utilisateur mis à jour pour $uid');
+        }
+      } else {
+        finalRole = role ?? AccountRoles.client;
+        isNewUser = true;
+        final roles = AccountRoles.normalize({
+          'role': finalRole,
+          'roles': [finalRole],
+        });
+
+        await userRef.set({
+          ...baseData,
+          'role': finalRole,
+          'activeRole': finalRole,
+          'roles': roles,
+          'roleFlags': AccountRoleService.roleFlags(roles),
+          'stats': {
+            'productsCount': 0,
+            'creationsCount': 0,
+            'followersCount': 0,
+          },
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        _logger.i('Document utilisateur créé dans users/$uid avec rôle client');
       }
 
-      await Future.delayed(const Duration(milliseconds: 500));
+      final latestUserDoc = await userRef.get();
+      try {
+        await _publicProfileService.syncFromUserData(
+          userId: uid,
+          data: latestUserDoc.data() ?? baseData,
+          authDisplayName: name,
+          authPhotoUrl: photoUrl,
+        );
+      } catch (e, stack) {
+        _logger.w(
+          'Synchronisation du profil public différée pour $uid',
+          error: e,
+          stackTrace: stack,
+        );
+      }
 
       return AuthResult(
         user: _firebaseAuth.currentUser,
@@ -143,8 +236,11 @@ class AuthRepository {
     } on FirebaseAuthException {
       rethrow;
     } catch (e, stack) {
-      _logger.e('Erreur lors de la création du document utilisateur',
-          error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur lors de la création du document utilisateur',
+        error: e,
+        stackTrace: stack,
+      );
       throw FirebaseAuthException(
         code: 'user-document-failed',
         message: 'Échec de la création du profil utilisateur',
@@ -152,12 +248,11 @@ class AuthRepository {
     }
   }
 
-  // === AUTHENTIFICATION EMAIL ===
   Future<AuthResult> registerWithEmailAndPassword({
     required String email,
     required String password,
     required String name,
-    required String role,
+    String role = AccountRoles.client,
   }) async {
     if (_isProcessingAuth) {
       throw FirebaseAuthException(
@@ -168,7 +263,7 @@ class AuthRepository {
 
     try {
       _isProcessingAuth = true;
-      _logger.d('Inscription avec email: $email');
+      _logger.d('Inscription Firebase avec email: $email');
 
       final credential = await _firebaseAuth.createUserWithEmailAndPassword(
         email: email,
@@ -183,7 +278,15 @@ class AuthRepository {
         );
       }
 
-      await user.updateDisplayName(name);
+      try {
+        await user.updateDisplayName(name);
+      } catch (e, stack) {
+        _logger.w(
+          'Nom Firebase Auth non synchronisé immédiatement pour ${user.uid}',
+          error: e,
+          stackTrace: stack,
+        );
+      }
 
       final result = await _createUserDocument(
         uid: user.uid,
@@ -194,13 +297,35 @@ class AuthRepository {
         isRegistration: true,
       );
 
-      _logger.i('Inscription réussie pour $email avec rôle $role');
+      if (result.isNewUser) {
+        unawaited(
+          _welcomeEmailService.queueWelcomeEmail(
+            uid: user.uid,
+            email: email,
+            displayName: name,
+          ),
+        );
+      }
+
+      _logger.i('Inscription Firebase réussie pour $email avec rôle $role');
       return result;
     } on FirebaseAuthException catch (e) {
       _logger.e('Erreur inscription: ${e.code} - ${e.message}');
+      if (e.code == 'email-already-in-use') {
+        final recovered = await _recoverCurrentEmailRegistration(
+          email: email,
+          name: name,
+          role: role,
+        );
+        if (recovered != null) return recovered;
+      }
       throw _handleFirebaseAuthError(e);
     } catch (e, stack) {
-      _logger.e('Erreur inattendue lors de l\'inscription', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur inattendue lors de l\'inscription',
+        error: e,
+        stackTrace: stack,
+      );
       throw FirebaseAuthException(
         code: 'registration-failed',
         message: 'Échec du processus d\'inscription',
@@ -208,6 +333,36 @@ class AuthRepository {
     } finally {
       _isProcessingAuth = false;
     }
+  }
+
+  Future<AuthResult?> _recoverCurrentEmailRegistration({
+    required String email,
+    required String name,
+    required String role,
+  }) async {
+    final user = _firebaseAuth.currentUser;
+    final currentEmail = user?.email?.trim().toLowerCase();
+    final requestedEmail = email.trim().toLowerCase();
+    if (user == null || currentEmail != requestedEmail) return null;
+
+    _logger.i(
+      'Reprise inscription: compte Auth déjà créé pour $requestedEmail',
+    );
+
+    if ((user.displayName ?? '').trim() != name.trim()) {
+      await user.updateDisplayName(name.trim());
+    }
+
+    final result = await _createUserDocument(
+      uid: user.uid,
+      authMethod: AuthMethod.email,
+      name: name,
+      email: requestedEmail,
+      role: role,
+      isRegistration: false,
+    );
+    await _assertAccountCanAuthenticate(user.uid);
+    return result;
   }
 
   Future<AuthResult> signInWithEmailAndPassword({
@@ -223,7 +378,7 @@ class AuthRepository {
 
     try {
       _isProcessingAuth = true;
-      _logger.d('Connexion avec email: $email');
+      _logger.d('Connexion Firebase avec email: $email');
 
       final credential = await _firebaseAuth.signInWithEmailAndPassword(
         email: email,
@@ -244,14 +399,19 @@ class AuthRepository {
         name: user.displayName,
         email: email,
       );
+      await _assertAccountCanAuthenticate(user.uid);
 
-      _logger.i('Connexion réussie pour $email');
+      _logger.i('Connexion Firebase réussie pour $email');
       return result;
     } on FirebaseAuthException catch (e) {
       _logger.e('Erreur connexion: ${e.code} - ${e.message}');
       throw _handleFirebaseAuthError(e);
     } catch (e, stack) {
-      _logger.e('Erreur inattendue lors de la connexion', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur inattendue lors de la connexion',
+        error: e,
+        stackTrace: stack,
+      );
       throw FirebaseAuthException(
         code: 'signin-failed',
         message: 'Échec du processus de connexion',
@@ -261,7 +421,120 @@ class AuthRepository {
     }
   }
 
-  // === AUTHENTIFICATION GOOGLE ===
+  Future<AuthResult> bootstrapDefaultAdmin({
+    required String email,
+    required String password,
+    required String name,
+  }) async {
+    if (_isProcessingAuth) {
+      throw FirebaseAuthException(
+        code: 'auth-in-progress',
+        message: 'Une authentification est déjà en cours',
+      );
+    }
+
+    try {
+      _isProcessingAuth = true;
+      final normalizedEmail = email.trim().toLowerCase();
+      UserCredential credential;
+
+      try {
+        credential = await _firebaseAuth.createUserWithEmailAndPassword(
+          email: normalizedEmail,
+          password: password,
+        );
+      } on FirebaseAuthException catch (e) {
+        if (e.code != 'email-already-in-use') rethrow;
+        credential = await _firebaseAuth.signInWithEmailAndPassword(
+          email: normalizedEmail,
+          password: password,
+        );
+      }
+
+      final user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'admin-bootstrap-failed',
+          message: 'Impossible de préparer le compte administrateur',
+        );
+      }
+
+      if ((user.displayName ?? '').trim() != name.trim()) {
+        await user.updateDisplayName(name.trim());
+      }
+
+      final roles = AccountRoles.normalize({
+        'role': AccountRoles.admin,
+        'activeRole': AccountRoles.admin,
+        'roles': [AccountRoles.client, AccountRoles.admin],
+      });
+
+      await _firestore.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'name': name.trim(),
+        'displayName': name.trim(),
+        'email': normalizedEmail,
+        'photoUrl': user.photoURL ?? '',
+        'authMethod': AuthMethod.email.name,
+        'role': AccountRoles.admin,
+        'activeRole': AccountRoles.admin,
+        'roles': roles,
+        'roleFlags': AccountRoleService.roleFlags(roles),
+        'admin': {
+          'bootstrap': true,
+          'status': 'active',
+          'canManageCommerce': true,
+          'canManageUsers': true,
+          'canModerateSalon': true,
+        },
+        'stats': {'productsCount': 0, 'creationsCount': 0, 'followersCount': 0},
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await _publicProfileService.syncFromUserData(
+        userId: user.uid,
+        data: {
+          'name': name.trim(),
+          'displayName': name.trim(),
+          'email': normalizedEmail,
+          'photoUrl': user.photoURL ?? '',
+          'role': AccountRoles.admin,
+          'activeRole': AccountRoles.admin,
+          'roles': roles,
+          'roleFlags': AccountRoleService.roleFlags(roles),
+          'isVerified': true,
+          'publicBadges': const ['Administration'],
+        },
+        authDisplayName: name.trim(),
+        authPhotoUrl: user.photoURL,
+      );
+
+      _logger.i('Compte administrateur préparé pour $normalizedEmail');
+      return AuthResult(
+        user: user,
+        userRole: AccountRoles.admin,
+        isNewUser: credential.additionalUserInfo?.isNewUser ?? false,
+        redirectRoute: _getRouteForRole(AccountRoles.admin),
+      );
+    } on FirebaseAuthException catch (e) {
+      _logger.e('Erreur bootstrap admin: ${e.code} - ${e.message}');
+      throw _handleFirebaseAuthError(e);
+    } catch (e, stack) {
+      _logger.e(
+        'Erreur inattendue bootstrap admin',
+        error: e,
+        stackTrace: stack,
+      );
+      throw FirebaseAuthException(
+        code: 'admin-bootstrap-failed',
+        message: 'Échec de préparation du compte administrateur',
+      );
+    } finally {
+      _isProcessingAuth = false;
+    }
+  }
+
   Future<AuthResult> signInWithGoogle({String? role}) async {
     if (_isProcessingAuth) {
       throw FirebaseAuthException(
@@ -272,9 +545,9 @@ class AuthRepository {
 
     try {
       _isProcessingAuth = true;
-      _logger.d('Début de la connexion Google');
+      _logger.d('Début de la connexion Google Firebase');
 
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
         throw FirebaseAuthException(
           code: 'google-signin-aborted',
@@ -282,15 +555,15 @@ class AuthRepository {
         );
       }
 
-      final GoogleSignInAuthentication googleAuth =
-      await googleUser.authentication;
-
+      final googleAuth = await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      final userCredential = await _firebaseAuth.signInWithCredential(credential);
+      final userCredential = await _firebaseAuth.signInWithCredential(
+        credential,
+      );
       final user = userCredential.user;
 
       if (user == null) {
@@ -308,14 +581,31 @@ class AuthRepository {
         photoUrl: user.photoURL,
         role: role,
       );
+      await _assertAccountCanAuthenticate(user.uid);
 
-      _logger.i('Connexion Google réussie pour ${user.email}');
+      final isNewGoogleAccount =
+          userCredential.additionalUserInfo?.isNewUser ?? result.isNewUser;
+      if (isNewGoogleAccount && (user.email ?? '').trim().isNotEmpty) {
+        unawaited(
+          _welcomeEmailService.queueWelcomeEmail(
+            uid: user.uid,
+            email: user.email!,
+            displayName: user.displayName,
+          ),
+        );
+      }
+
+      _logger.i('Connexion Google Firebase réussie pour ${user.email}');
       return result;
     } on FirebaseAuthException catch (e) {
       _logger.e('Erreur Google Sign-In: ${e.code} - ${e.message}');
       throw _handleFirebaseAuthError(e);
     } catch (e, stack) {
-      _logger.e('Erreur inattendue Google Sign-In', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur inattendue Google Sign-In',
+        error: e,
+        stackTrace: stack,
+      );
       throw FirebaseAuthException(
         code: 'google-signin-failed',
         message: 'Échec de la connexion Google',
@@ -325,20 +615,32 @@ class AuthRepository {
     }
   }
 
-
-  // === MÉTHODES UTILITAIRES ===
   Future<AuthResult?> getCurrentUserInfo() async {
     try {
       final user = _firebaseAuth.currentUser;
       if (user == null) return null;
 
-      await Future.delayed(const Duration(milliseconds: 500));
-
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (!userDoc.exists) return null;
+      if (!userDoc.exists) {
+        _logger.i(
+          'Profil manquant pour ${user.uid}, réparation automatique en client',
+        );
+        final repaired = await _createUserDocument(
+          uid: user.uid,
+          authMethod: _authMethodForProvider(user),
+          name: user.displayName,
+          email: user.email,
+          role: AccountRoles.client,
+          photoUrl: user.photoURL,
+          isRegistration: false,
+        );
+        await _assertAccountCanAuthenticate(user.uid);
+        return repaired;
+      }
 
       final userData = userDoc.data() as Map<String, dynamic>;
-      final userRole = userData['role'] ?? 'client';
+      await _assertAccountCanAuthenticate(user.uid, userData: userData);
+      final userRole = AccountRoles.activeRole(userData);
 
       return AuthResult(
         user: user,
@@ -347,9 +649,19 @@ class AuthRepository {
         redirectRoute: _getRouteForRole(userRole),
       );
     } catch (e, stack) {
-      _logger.e('Erreur récupération infos utilisateur', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur récupération infos utilisateur',
+        error: e,
+        stackTrace: stack,
+      );
       return null;
     }
+  }
+
+  AuthMethod _authMethodForProvider(User user) {
+    final providers = user.providerData.map((info) => info.providerId).toSet();
+    if (providers.contains('google.com')) return AuthMethod.google;
+    return AuthMethod.email;
   }
 
   Future<void> resetPassword({required String email}) async {
@@ -360,7 +672,11 @@ class AuthRepository {
       _logger.e('Erreur réinitialisation: ${e.code} - ${e.message}');
       throw _handleFirebaseAuthError(e);
     } catch (e, stack) {
-      _logger.e('Erreur inattendue réinitialisation', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur inattendue réinitialisation',
+        error: e,
+        stackTrace: stack,
+      );
       throw FirebaseAuthException(
         code: 'reset-password-failed',
         message: 'Échec de la réinitialisation du mot de passe',
@@ -368,15 +684,45 @@ class AuthRepository {
     }
   }
 
+  Future<void> _assertAccountCanAuthenticate(
+    String uid, {
+    Map<String, dynamic>? userData,
+  }) async {
+    final data =
+        userData ??
+        ((await _firestore.collection('users').doc(uid).get()).data() ??
+            const <String, dynamic>{});
+    final status = (data['accountStatus'] ?? '').toString().toLowerCase();
+    final closure = Map<String, dynamic>.from(data['closure'] ?? const {});
+    final closureStatus = (closure['status'] ?? '').toString().toLowerCase();
+
+    final blockedStatuses = {
+      'closed',
+      'closure_requested',
+      'deactivated',
+      'disabled',
+      'suspended',
+      'blocked',
+      'deleting',
+      'closure_approved',
+    };
+
+    if (blockedStatuses.contains(status) ||
+        blockedStatuses.contains(closureStatus)) {
+      await signOut();
+      throw FirebaseAuthException(
+        code: status == 'suspended' ? 'account-suspended' : 'account-closed',
+        message:
+            'Ce compte est fermé ou désactivé. Contactez l’administration pour une réactivation.',
+      );
+    }
+  }
+
   Future<void> signOut() async {
     try {
-      await Future.wait([
-        _googleSignIn.signOut(),
-        _firebaseAuth.signOut(),
-      ]);
-
+      await Future.wait([_googleSignIn.signOut(), _firebaseAuth.signOut()]);
       _isProcessingAuth = false;
-      _logger.i('Déconnexion réussie');
+      _logger.i('Déconnexion Firebase réussie');
     } catch (e, stack) {
       _logger.e('Erreur déconnexion', error: e, stackTrace: stack);
       throw FirebaseAuthException(
@@ -406,7 +752,8 @@ class AuthRepository {
         message = 'Aucun compte associé à cet identifiant';
         break;
       case 'wrong-password':
-        message = 'Mot de passe incorrect';
+      case 'invalid-credential':
+        message = 'Email ou mot de passe incorrect';
         break;
       case 'too-many-requests':
         message = 'Trop de tentatives. Réessayez plus tard';
@@ -420,20 +767,19 @@ class AuthRepository {
       case 'google-signin-aborted':
         message = 'Connexion Google annulée par l\'utilisateur';
         break;
-      case 'facebook-auth-cancelled':
-        message = 'Connexion Facebook annulée par l\'utilisateur';
-        break;
-      case 'facebook-permission-denied':
-        message = 'Permissions Facebook refusées';
-        break;
-      case 'facebook-invalid-config':
-        message = 'Configuration Facebook invalide';
-        break;
-      case 'facebook-signin-failed':
-        message = 'Échec de la connexion Facebook';
+      case 'google-signin-failed':
+        message = 'Échec de la connexion Google';
         break;
       case 'user-document-not-found':
         message = 'Profil utilisateur introuvable. Veuillez réessayer.';
+        break;
+      case 'account-closed':
+        message =
+            'Ce compte est fermé. Contactez l’administration pour le réactiver.';
+        break;
+      case 'account-suspended':
+        message =
+            'Ce compte est suspendu. Contactez l’administration pour plus d’informations.';
         break;
       case 'user-document-failed':
         message = 'Échec de la création du profil utilisateur';
@@ -445,13 +791,12 @@ class AuthRepository {
         message = 'Un compte existe déjà avec un autre fournisseur';
         break;
       default:
-        message = 'Erreur d\'authentification: ${e.message}';
+        message = e.message ?? 'Erreur d\'authentification';
     }
 
     return FirebaseAuthException(code: e.code, message: message);
   }
 
-  // Getters et méthodes utilitaires
   Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
   User? get currentUser => _firebaseAuth.currentUser;
 
@@ -460,7 +805,11 @@ class AuthRepository {
       final doc = await _firestore.collection('users').doc(uid).get();
       return doc.exists;
     } catch (e, stack) {
-      _logger.e('Erreur vérification existence utilisateur', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur vérification existence utilisateur',
+        error: e,
+        stackTrace: stack,
+      );
       return false;
     }
   }
@@ -469,7 +818,11 @@ class AuthRepository {
     try {
       return await _firestore.collection('users').doc(uid).get();
     } catch (e, stack) {
-      _logger.e('Erreur récupération document utilisateur', error: e, stackTrace: stack);
+      _logger.e(
+        'Erreur récupération document utilisateur',
+        error: e,
+        stackTrace: stack,
+      );
       return _firestore.collection('users').doc('invalid').get();
     }
   }

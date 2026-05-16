@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 class SheetHandle extends StatelessWidget {
@@ -21,4 +20,3 @@ class SheetHandle extends StatelessWidget {
     );
   }
 }
-

@@ -6,6 +6,7 @@ class ResponsiveBuilder extends StatelessWidget {
   final Widget desktop;
 
   const ResponsiveBuilder({
+    super.key,
     required this.mobile,
     required this.tablet,
     required this.desktop,
@@ -16,7 +17,7 @@ class ResponsiveBuilder extends StatelessWidget {
 
   static bool isTablet(BuildContext context) =>
       MediaQuery.of(context).size.width >= 600 &&
-          MediaQuery.of(context).size.width < 1000;
+      MediaQuery.of(context).size.width < 1000;
 
   static bool isDesktop(BuildContext context) =>
       MediaQuery.of(context).size.width >= 1000;

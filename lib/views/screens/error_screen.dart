@@ -20,11 +20,7 @@ class ErrorScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.error_outline,
-              size: 80,
-              color: Colors.red,
-            ),
+            const Icon(Icons.error_outline, size: 80, color: Colors.red),
             const SizedBox(height: 20),
             Text(
               'Route non trouvée',
@@ -38,9 +34,13 @@ class ErrorScreen extends StatelessWidget {
             ),
             const SizedBox(height: 30),
             ElevatedButton(
-              onPressed: () => Navigator.pushReplacementNamed(context, AppRoutes.auth),
+              onPressed:
+                  () => Navigator.pushReplacementNamed(context, AppRoutes.auth),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 30,
+                  vertical: 15,
+                ),
               ),
               child: const Text('Retour à l\'accueil'),
             ),

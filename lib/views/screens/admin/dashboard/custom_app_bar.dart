@@ -4,31 +4,28 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget> actions;
 
-  const CustomAppBar({
-    required this.title,
-    this.actions = const [],
-  });
+  const CustomAppBar({super.key, required this.title, this.actions = const []});
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
       title: Text(
         title,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
+        style: const TextStyle(
+          fontWeight: FontWeight.w900,
           color: AppColors.primaryDark,
+          letterSpacing: 0,
         ),
       ),
       centerTitle: false,
       elevation: 0,
-      backgroundColor: Colors.white,
-      iconTheme: IconThemeData(color: AppColors.primaryDark),
+      scrolledUnderElevation: 0,
+      surfaceTintColor: Colors.transparent,
+      backgroundColor: ModernColors.canvas,
+      iconTheme: const IconThemeData(color: AppColors.primaryDark),
       actions: actions,
-      shape: Border(
-        bottom: BorderSide(
-          color: Colors.grey[200]!,
-          width: 1,
-        ),
+      shape: const Border(
+        bottom: BorderSide(color: ModernColors.line, width: 1),
       ),
     );
   }

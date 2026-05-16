@@ -1,10 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // Add this import for kDebugMode
+import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'routes.dart';
-import '../splash/splash_screen.dart';
 import 'error_screen.dart';
+import '../core/connectivity/app_connectivity_banner.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -12,13 +12,14 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ElegantFaso',
+      title: 'ElegantStyle',
       theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme, // Add dark theme support
-      themeMode: ThemeMode.system, // Follow system theme
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.light,
 
       // Use the initial route from AppRoutes
       initialRoute: AppRoutes.initialRoute,
+      navigatorKey: AppRoutes.navigatorKey,
 
       // Remove the static routes property and use onGenerateRoute exclusively
       // This ensures all navigation goes through the enhanced route generation
@@ -27,9 +28,9 @@ class MyApp extends StatelessWidget {
       // Handle unknown routes that weren't caught by onGenerateRoute
       onUnknownRoute: (settings) {
         return MaterialPageRoute(
-          builder: (context) => ErrorScreen(
-            routeName: settings.name ?? 'Route inconnue',
-          ),
+          builder:
+              (context) =>
+                  ErrorScreen(routeName: settings.name ?? 'Route inconnue'),
           settings: RouteSettings(
             name: AppRoutes.error,
             arguments: {'routeName': settings.name ?? 'Route inconnue'},
@@ -41,14 +42,23 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
 
       // Add global navigation observers for better debugging (optional)
-      navigatorObservers: [
-        _AppNavigatorObserver(),
-      ],
+      navigatorObservers: [if (kDebugMode) _AppNavigatorObserver()],
 
       // Add builder for global error handling (optional)
       builder: (context, child) {
         // Global error boundary wrapper
-        return _GlobalErrorBoundary(child: child);
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(
+              MediaQuery.textScalerOf(
+                context,
+              ).scale(1).clamp(0.86, 1.18).toDouble(),
+            ),
+          ),
+          child: AppConnectivityBanner(
+            child: _GlobalErrorBoundary(child: child),
+          ),
+        );
       },
     );
   }
@@ -71,7 +81,9 @@ class _AppNavigatorObserver extends NavigatorObserver {
   @override
   void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
-    debugPrint('Navigation: Replaced ${oldRoute?.settings.name} with ${newRoute?.settings.name}');
+    debugPrint(
+      'Navigation: Replaced ${oldRoute?.settings.name} with ${newRoute?.settings.name}',
+    );
   }
 }
 
@@ -94,7 +106,7 @@ class MyAppEnhanced extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ElegantFaso',
+      title: 'ElegantStyle',
 
       // Theme configuration
       theme: AppTheme.lightTheme,
@@ -103,6 +115,7 @@ class MyAppEnhanced extends StatelessWidget {
 
       // Routing configuration
       initialRoute: AppRoutes.initialRoute,
+      navigatorKey: AppRoutes.navigatorKey,
       onGenerateRoute: AppRoutes.onGenerateRoute,
       onUnknownRoute: _handleUnknownRoute,
 
@@ -110,16 +123,18 @@ class MyAppEnhanced extends StatelessWidget {
       debugShowCheckedModeBanner: false,
 
       // Navigation configuration
-      navigatorObservers: [
-        if (kDebugMode) _AppNavigatorObserver(),
-      ],
+      navigatorObservers: [if (kDebugMode) _AppNavigatorObserver()],
 
       // Global configuration
       builder: (context, child) {
         return MediaQuery(
           // Ensure text scaling doesn't break the UI
           data: MediaQuery.of(context).copyWith(
-            textScaleFactor: MediaQuery.of(context).textScaleFactor.clamp(0.8, 1.2),
+            textScaler: TextScaler.linear(
+              MediaQuery.textScalerOf(
+                context,
+              ).scale(1).clamp(0.8, 1.2).toDouble(),
+            ),
           ),
           child: _GlobalErrorBoundary(child: child),
         );
@@ -127,10 +142,7 @@ class MyAppEnhanced extends StatelessWidget {
 
       // Localization support (if needed)
       locale: const Locale('fr', 'FR'), // French locale for Burkina Faso
-      supportedLocales: const [
-        Locale('fr', 'FR'),
-        Locale('en', 'US'),
-      ],
+      supportedLocales: const [Locale('fr', 'FR'), Locale('en', 'US')],
 
       // Performance optimizations
       checkerboardRasterCacheImages: false,
@@ -145,9 +157,9 @@ class MyAppEnhanced extends StatelessWidget {
     debugPrint('Unknown route attempted: ${settings.name}');
 
     return MaterialPageRoute(
-      builder: (context) => ErrorScreen(
-        routeName: settings.name ?? 'Route inconnue',
-      ),
+      builder:
+          (context) =>
+              ErrorScreen(routeName: settings.name ?? 'Route inconnue'),
       settings: RouteSettings(
         name: AppRoutes.error,
         arguments: {'routeName': settings.name ?? 'Route inconnue'},

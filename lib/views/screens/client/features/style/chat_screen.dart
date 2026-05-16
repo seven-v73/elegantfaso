@@ -1,14 +1,40 @@
-// lib/chat_screen.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../../../../design/app_icons.dart';
 import 'gemini_service.dart';
 
+enum ChatRole { user, model }
+
+enum _IrisMode { advise, outfit, community, nearby, trend, occasion }
+
+class ChatMessage {
+  ChatMessage({
+    required this.role,
+    required this.text,
+    DateTime? timestamp,
+    this.usedWebSearch = false,
+    this.isError = false,
+  }) : timestamp = timestamp ?? DateTime.now();
+
+  final ChatRole role;
+  final String text;
+  final DateTime timestamp;
+  final bool usedWebSearch;
+  final bool isError;
+
+  bool get isUser => role == ChatRole.user;
+}
+
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  const ChatScreen({super.key, this.initialDraft});
+
+  final String? initialDraft;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -17,28 +43,127 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final List<Map<String, dynamic>> _messages = [];
-  final GeminiApiService _geminiService = GeminiApiService();
   final FocusNode _textFieldFocus = FocusNode();
+  final List<ChatMessage> _chatMessages = [];
+  final GeminiApiService _geminiService = GeminiApiService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _isLoading = false;
   bool _webSearchEnabled = false;
   bool _showScrollToBottom = false;
-  String _userName = '';
-  String _userPhotoUrl = '';
   bool _isLoadingUser = true;
-  String _currentEmotion = 'neutre';
+  String _userName = 'Utilisateur';
+  String _userPhotoUrl = '';
+  _IrisMode _selectedMode = _IrisMode.advise;
+  int _requestToken = 0;
+  ChatMessage? _lastDeletedMessage;
+  int? _lastDeletedIndex;
 
-  late AnimationController _animationController;
+  late AnimationController _introController;
+  late AnimationController _welcomeController;
+  late AnimationController _typingController;
+  late AnimationController _sendButtonController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
-  late AnimationController _typingController;
-  late AnimationController _welcomeController;
   late Animation<double> _slideAnimation;
   late Animation<double> _welcomeOpacity;
-  late AnimationController _sendButtonController;
+
+  static const Color _primaryColor = Color(0xFF0F766E);
+  static const Color _amberAccent = Color(0xFFF59E0B);
+  static const Color _blueInfo = Color(0xFF2563EB);
+  static const Color _successGreen = Color(0xFF16A34A);
+  static const Color _errorRed = Color(0xFFDC2626);
+  static const Color _bgColor = Color(0xFFF3F5F7);
+  static const Color _cardColor = Colors.white;
+  static const Color _textPrimary = Color(0xFF1F2933);
+  static const Color _textSecondary = Color(0xFF7B8492);
+  static const Color _borderColor = Color(0xFFE4E8EE);
+  static const Color _errorSoft = Color(0xFFFFEEF2);
+
+  static const List<_PromptSuggestion> _suggestions = [
+    _PromptSuggestion(
+      label: 'Tenue pour mariage',
+      prompt:
+          'Propose-moi une tenue élégante pour un mariage, avec une touche africaine moderne.',
+      icon: AppIcons.appointments,
+    ),
+    _PromptSuggestion(
+      label: 'Look bureau',
+      prompt:
+          'Aide-moi à composer un look bureau chic, confortable et professionnel.',
+      icon: Icons.work_outline_rounded,
+    ),
+    _PromptSuggestion(
+      label: 'Associer un textile',
+      prompt:
+          'J’ai une pièce en textile traditionnel ou imprimé et je veux l’associer avec des pièces modernes.',
+      icon: AppIcons.wardrobe,
+    ),
+    _PromptSuggestion(
+      label: 'Couleurs qui me vont',
+      prompt:
+          'Aide-moi à choisir des couleurs qui me mettent en valeur pour mes tenues.',
+      icon: AppIcons.style,
+    ),
+    _PromptSuggestion(
+      label: 'Tenue selon ma morphologie',
+      prompt:
+          'Conseille-moi une tenue adaptée à ma morphologie et à mon style.',
+      icon: AppIcons.measurements,
+    ),
+    _PromptSuggestion(
+      label: 'Tradition moderne',
+      prompt:
+          'Donne-moi des idées de looks modernes qui valorisent un savoir-faire textile local ou culturel.',
+      icon: AppIcons.inspiration,
+    ),
+  ];
+
+  static const List<_IrisModeOption> _modes = [
+    _IrisModeOption(
+      mode: _IrisMode.advise,
+      label: 'Me conseiller',
+      hint:
+          'Réponds comme Iris, avec un conseil personnel, inclusif et actionnable.',
+      icon: AppIcons.style,
+    ),
+    _IrisModeOption(
+      mode: _IrisMode.outfit,
+      label: 'Tenue',
+      hint:
+          'Compose un look complet avec garde-robe, pièces manquantes et budget.',
+      icon: AppIcons.wardrobe,
+    ),
+    _IrisModeOption(
+      mode: _IrisMode.community,
+      label: 'Communauté',
+      hint:
+          'Aide à formuler une question utile ou à résumer des avis de la communauté.',
+      icon: Icons.forum_rounded,
+    ),
+    _IrisModeOption(
+      mode: _IrisMode.nearby,
+      label: 'Autour de moi',
+      hint:
+          'Cherche des pistes locales: boutiques, créateurs, stories, Salon et contact.',
+      icon: Icons.place_rounded,
+    ),
+    _IrisModeOption(
+      mode: _IrisMode.trend,
+      label: 'Tendance',
+      hint:
+          'Explique une tendance avec prudence et adapte-la au style de l’utilisateur.',
+      icon: Icons.travel_explore_rounded,
+    ),
+    _IrisModeOption(
+      mode: _IrisMode.occasion,
+      label: 'Occasion',
+      hint:
+          'Prépare une tenue selon événement, confort, codes sociaux et météo probable.',
+      icon: AppIcons.appointments,
+    ),
+  ];
 
   @override
   void initState() {
@@ -47,319 +172,1143 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _loadUserData();
     _scrollController.addListener(_onScroll);
     _controller.addListener(_onTextChanged);
+    final draft = widget.initialDraft?.trim();
+    if (draft != null && draft.isNotEmpty) {
+      _controller.text = draft;
+      _controller.selection = TextSelection.collapsed(offset: draft.length);
+    }
   }
 
   void _initializeAnimations() {
-    _animationController = AnimationController(
+    _introController = AnimationController(
+      duration: const Duration(milliseconds: 850),
+      vsync: this,
+    );
+    _welcomeController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
-
-    _welcomeController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-
-    _sendButtonController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-      ),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: const Interval(0.2, 0.8, curve: Curves.elasticOut),
-      ),
-    );
-
-    _slideAnimation = Tween<double>(begin: 50.0, end: 0.0).animate(
-      CurvedAnimation(
-        parent: _welcomeController,
-        curve: Curves.easeOutBack,
-      ),
-    );
-
-    _welcomeOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _welcomeController,
-        curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
-      ),
-    );
-
     _typingController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-  }
+    _sendButtonController = AnimationController(
+      duration: const Duration(milliseconds: 220),
+      vsync: this,
+    );
 
-  void _onTextChanged() {
-    if (_controller.text.isNotEmpty && _sendButtonController.status != AnimationStatus.completed) {
-      _sendButtonController.forward();
-    } else if (_controller.text.isEmpty && _sendButtonController.status != AnimationStatus.dismissed) {
-      _sendButtonController.reverse();
-    }
-  }
-
-  void _onScroll() {
-    final shouldShow = _scrollController.offset <
-        _scrollController.position.maxScrollExtent - 100;
-    if (shouldShow != _showScrollToBottom) {
-      setState(() => _showScrollToBottom = shouldShow);
-    }
+    _fadeAnimation = CurvedAnimation(
+      parent: _introController,
+      curve: Curves.easeOut,
+    );
+    _scaleAnimation = Tween<double>(begin: 0.96, end: 1).animate(
+      CurvedAnimation(parent: _introController, curve: Curves.easeOutCubic),
+    );
+    _slideAnimation = Tween<double>(begin: 22, end: 0).animate(
+      CurvedAnimation(parent: _welcomeController, curve: Curves.easeOutCubic),
+    );
+    _welcomeOpacity = CurvedAnimation(
+      parent: _welcomeController,
+      curve: Curves.easeOut,
+    );
   }
 
   Future<void> _loadUserData() async {
     try {
       final user = _auth.currentUser;
       if (user != null) {
-        final userDoc = await _firestore.collection('users').doc(user.uid).get();
-
-        if (userDoc.exists) {
-          final userData = userDoc.data()!;
-          setState(() {
-            _userName = userData['displayName'] ?? userData['nom'] ?? user.displayName ?? 'Utilisateur';
-            _userPhotoUrl = userData['photoURL'] ?? user.photoURL ?? '';
-            _isLoadingUser = false;
-          });
-        } else {
-          setState(() {
-            _userName = user.displayName ?? 'Utilisateur';
-            _userPhotoUrl = user.photoURL ?? '';
-            _isLoadingUser = false;
-          });
-        }
-      } else {
+        final userDoc =
+            await _firestore.collection('users').doc(user.uid).get();
+        if (!mounted) return;
+        final userData = userDoc.data();
         setState(() {
-          _userName = 'Utilisateur';
+          _userName =
+              userData?['displayName'] ??
+              userData?['name'] ??
+              userData?['nom'] ??
+              user.displayName ??
+              'Utilisateur';
+          _userPhotoUrl = userData?['photoURL'] ?? user.photoURL ?? '';
           _isLoadingUser = false;
         });
+      } else {
+        if (!mounted) return;
+        setState(() => _isLoadingUser = false);
       }
-    } catch (e) {
-      setState(() {
-        _userName = 'Utilisateur';
-        _isLoadingUser = false;
-      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingUser = false);
     }
 
-    _animationController.forward();
-    Future.delayed(const Duration(milliseconds: 500), () {
-      _welcomeController.forward();
+    if (!mounted) return;
+    _introController.forward();
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) _welcomeController.forward();
     });
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    _introController.dispose();
     _welcomeController.dispose();
     _typingController.dispose();
     _sendButtonController.dispose();
     _scrollController.dispose();
     _textFieldFocus.dispose();
     _controller.removeListener(_onTextChanged);
+    _controller.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    final hasText = _controller.text.trim().isNotEmpty;
+    if (hasText && _sendButtonController.status != AnimationStatus.completed) {
+      _sendButtonController.forward();
+    } else if (!hasText &&
+        _sendButtonController.status != AnimationStatus.dismissed) {
+      _sendButtonController.reverse();
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final shouldShow =
+        _scrollController.offset <
+        _scrollController.position.maxScrollExtent - 140;
+    if (shouldShow != _showScrollToBottom && mounted) {
+      setState(() => _showScrollToBottom = shouldShow);
+    }
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
     });
   }
 
-  void _sendMessage() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
+  Future<void> _sendMessage({
+    String? overrideText,
+    bool keepDraft = false,
+  }) async {
+    final text = (overrideText ?? _controller.text).trim();
+    if (text.isEmpty || _isLoading) return;
 
+    final useWebSearch = _webSearchEnabled;
+    final token = ++_requestToken;
+    final context = _buildConversationContext();
     HapticFeedback.lightImpact();
 
-    // Analyser l'émotion du message utilisateur
-    final emotionalData = _geminiService.analyzeEmotions(text);
-    final dominantEmotion = emotionalData['dominant_emotion'] ?? 'neutre';
-
     setState(() {
-      _messages.add({
-        'role': 'user',
-        'text': text,
-        'timestamp': DateTime.now(),
-        'hasWebSearch': _webSearchEnabled,
-        'emotion': dominantEmotion,
-      });
+      _chatMessages.add(
+        ChatMessage(
+          role: ChatRole.user,
+          text: text,
+          usedWebSearch: useWebSearch,
+        ),
+      );
       _isLoading = true;
       _webSearchEnabled = false;
+      _lastDeletedMessage = null;
+      _lastDeletedIndex = null;
     });
 
-    _controller.clear();
+    if (!keepDraft) _controller.clear();
+    _textFieldFocus.requestFocus();
     _scrollToBottom();
-    _textFieldFocus.unfocus();
 
     try {
-      String response;
-      if (_webSearchEnabled) {
-        response = await _geminiService.searchFashionInfo(text);
-      } else {
-        response = await _geminiService.generateContent(text);
-      }
-
+      final response = await _geminiService.generateChatContent(
+        prompt: _buildModePrompt(text),
+        conversationContext: context,
+        useWebSearch: useWebSearch,
+      );
+      if (!mounted || token != _requestToken) return;
       setState(() {
-        _messages.add({
-          'role': 'model',
-          'text': response,
-          'timestamp': DateTime.now(),
-          'hasLinks': _extractLinks(response).isNotEmpty,
-          'isWebSearch': _webSearchEnabled,
-          'emotion': dominantEmotion,
-        });
+        _chatMessages.add(ChatMessage(role: ChatRole.model, text: response));
         _isLoading = false;
       });
-
       _scrollToBottom();
-    } catch (e) {
+    } catch (_) {
+      if (!mounted || token != _requestToken) return;
       setState(() {
-        _messages.add({
-          'role': 'model',
-          'text': 'Désolé, une erreur s\'est produite. Peux-tu réessayer ?',
-          'timestamp': DateTime.now(),
-          'isError': true,
-          'emotion': 'neutre',
-        });
+        _chatMessages.add(
+          ChatMessage(
+            role: ChatRole.model,
+            text: 'Désolé, une erreur est survenue. Réessaie.',
+            isError: true,
+          ),
+        );
         _isLoading = false;
       });
       _scrollToBottom();
     }
   }
 
+  String _buildConversationContext() {
+    final recent =
+        _chatMessages.length > 10
+            ? _chatMessages.sublist(_chatMessages.length - 10)
+            : _chatMessages;
+    return recent
+        .map((message) {
+          final role = message.isUser ? _userName : 'Conseiller style';
+          return '$role: ${message.text}';
+        })
+        .join('\n');
+  }
+
   List<String> _extractLinks(String text) {
-    final RegExp linkRegex = RegExp(r'https?://[^\s]+');
-    return linkRegex.allMatches(text).map((match) => match.group(0)!).toList();
+    final linkRegex = RegExp(r'https?://[^\s<>()"]+');
+    return linkRegex
+        .allMatches(text)
+        .map((match) => match.group(0)!)
+        .map((url) => url.replaceFirst(RegExp(r'[.,;:!?]+$'), ''))
+        .toSet()
+        .toList();
   }
 
   Future<void> _launchUrl(String url) async {
     try {
-      final Uri uri = Uri.parse(url);
+      final uri = Uri.parse(url);
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         throw Exception('Could not launch $url');
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Impossible d\'ouvrir le lien: $url'),
-          backgroundColor: Colors.red[400],
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Impossible d’ouvrir le lien: $url', _errorRed);
     }
   }
 
-  Widget _buildMessageContent(Map<String, dynamic> message) {
-    final text = message['text'] as String;
-    final links = _extractLinks(text);
-    final isWebSearch = message['isWebSearch'] == true;
-    final emotion = message['emotion'] ?? 'neutre';
+  void _useSuggestion(_PromptSuggestion suggestion) {
+    _controller.text = suggestion.prompt;
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
+    _textFieldFocus.requestFocus();
+  }
 
-    // Styles adaptés à l'émotion
-    final emotionColors = {
-      'joie': Colors.orange[800],
-      'excitation': Colors.yellow[800],
-      'stress': Colors.blue[800],
-      'tristesse': Colors.purple[800],
-      'colère': Colors.red[800],
-      'confiance': Colors.green[800],
-      'doute': Colors.indigo[800],
-      'fatigue': Colors.brown[800],
-      'curiosité': Colors.teal[800],
-      'amour': Colors.pink[800],
-      'neutre': Colors.grey[800],
-    };
+  void _stopGeneration() {
+    if (!_isLoading) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _requestToken++;
+      _isLoading = false;
+    });
+    _showSnack('Génération arrêtée', _amberAccent);
+  }
 
-    final textColor = emotionColors[emotion] ?? Colors.grey[800];
-    final bgColor = emotionColors[emotion]?.withOpacity(0.1) ?? Colors.grey[100];
+  Future<void> _retryLastUserMessage() async {
+    for (var i = _chatMessages.length - 1; i >= 0; i--) {
+      if (_chatMessages[i].isUser) {
+        final message = _chatMessages[i];
+        if (_chatMessages.isNotEmpty && _chatMessages.last.isError) {
+          setState(() => _chatMessages.removeLast());
+        }
+        _webSearchEnabled = message.usedWebSearch;
+        await _sendMessage(overrideText: message.text);
+        return;
+      }
+    }
+  }
 
-    if (links.isEmpty) {
-      return Container(
-        decoration: BoxDecoration(
-          color: isWebSearch ? Colors.blue[50] : bgColor,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 16,
-            color: message['role'] == 'user'
-                ? Colors.white
-                : message['isError'] == true
-                ? Colors.red[700]
-                : textColor,
-            height: 1.4,
+  Future<void> _regenerateResponse(int index) async {
+    if (_isLoading || index < 0 || index >= _chatMessages.length) return;
+    final userIndex = _findPreviousUserMessageIndex(index);
+    if (userIndex == null) {
+      _showSnack('Aucun message utilisateur associé', _amberAccent);
+      return;
+    }
+
+    final userMessage = _chatMessages[userIndex];
+    final token = ++_requestToken;
+    final context = _buildConversationContextBefore(userIndex);
+
+    setState(() {
+      _chatMessages.removeAt(index);
+      _isLoading = true;
+    });
+
+    try {
+      final response = await _geminiService.generateChatContent(
+        prompt: _buildModePrompt(userMessage.text),
+        conversationContext: context,
+        useWebSearch: userMessage.usedWebSearch,
+      );
+      if (!mounted || token != _requestToken) return;
+      setState(() {
+        final safeIndex = index.clamp(0, _chatMessages.length);
+        _chatMessages.insert(
+          safeIndex,
+          ChatMessage(role: ChatRole.model, text: response),
+        );
+        _isLoading = false;
+      });
+      _scrollToBottom();
+    } catch (_) {
+      if (!mounted || token != _requestToken) return;
+      setState(() {
+        final safeIndex = index.clamp(0, _chatMessages.length);
+        _chatMessages.insert(
+          safeIndex,
+          ChatMessage(
+            role: ChatRole.model,
+            text: 'Désolé, une erreur est survenue lors de la régénération.',
+            isError: true,
           ),
+        );
+        _isLoading = false;
+      });
+    }
+  }
+
+  int? _findPreviousUserMessageIndex(int index) {
+    for (var i = index - 1; i >= 0; i--) {
+      if (_chatMessages[i].isUser) return i;
+    }
+    return null;
+  }
+
+  String _buildConversationContextBefore(int index) {
+    final start = (index - 10).clamp(0, _chatMessages.length);
+    return _chatMessages
+        .sublist(start, index)
+        .map((message) {
+          final role = message.isUser ? _userName : 'Conseiller style';
+          return '$role: ${message.text}';
+        })
+        .join('\n');
+  }
+
+  String _buildModePrompt(String userText) {
+    final mode = _modes.firstWhere(
+      (item) => item.mode == _selectedMode,
+      orElse: () => _modes.first,
+    );
+    return '''
+Mode Iris choisi: ${mode.label}
+Intention UX: ${mode.hint}
+
+Demande utilisateur:
+$userText
+
+Réponds avec une aide concrète. Termine par 1 à 3 prochaines actions possibles, par exemple: chercher dans le Salon, demander à la communauté, contacter un pro, sauvegarder une idée, essayer avec la garde-robe ou activer la recherche web si nécessaire.''';
+  }
+
+  void _editAndResend(ChatMessage message) {
+    _controller.text = message.text;
+    _controller.selection = TextSelection.collapsed(
+      offset: message.text.length,
+    );
+    setState(() => _webSearchEnabled = message.usedWebSearch);
+    _textFieldFocus.requestFocus();
+  }
+
+  void _deleteMessage(int index) {
+    if (index < 0 || index >= _chatMessages.length) return;
+    final deleted = _chatMessages[index];
+    setState(() {
+      _lastDeletedMessage = deleted;
+      _lastDeletedIndex = index;
+      _chatMessages.removeAt(index);
+    });
+    HapticFeedback.lightImpact();
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Message supprimé'),
+        backgroundColor: _textPrimary,
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Annuler',
+          textColor: Colors.white,
+          onPressed: _undoDelete,
+        ),
+      ),
+    );
+  }
+
+  void _undoDelete() {
+    final message = _lastDeletedMessage;
+    final index = _lastDeletedIndex;
+    if (message == null || index == null) return;
+    setState(() {
+      _chatMessages.insert(index.clamp(0, _chatMessages.length), message);
+      _lastDeletedMessage = null;
+      _lastDeletedIndex = null;
+    });
+  }
+
+  void _clearChat() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: const Text('Effacer la conversation'),
+            content: const Text(
+              'Êtes-vous sûr de vouloir effacer toute la conversation ?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Annuler',
+                  style: TextStyle(color: _textSecondary),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() => _chatMessages.clear());
+                  Navigator.pop(context);
+                  HapticFeedback.lightImpact();
+                },
+                child: const Text(
+                  'Effacer',
+                  style: TextStyle(color: _errorRed),
+                ),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Future<void> _exportConversation() async {
+    if (_chatMessages.isEmpty) {
+      _showSnack('Aucune conversation à exporter', _amberAccent);
+      return;
+    }
+
+    final buffer =
+        StringBuffer()
+          ..writeln('Conversation style - ElegantStyle')
+          ..writeln(
+            'Exportée le ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+          )
+          ..writeln('${'-' * 50}\n');
+
+    for (final message in _chatMessages) {
+      final role = message.isUser ? _userName : 'Conseiller style';
+      final time =
+          '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}';
+      buffer
+        ..writeln('[$time] $role:')
+        ..writeln(message.text)
+        ..writeln();
+    }
+
+    await SharePlus.instance.share(
+      ShareParams(
+        text: buffer.toString(),
+        subject: 'Conversation style',
+        title: 'Conversation style',
+      ),
+    );
+  }
+
+  void _showMessageOptions(ChatMessage message, int index) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => SafeArea(
+            child: Container(
+              decoration: const BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x140F172A),
+                    blurRadius: 24,
+                    offset: Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 5,
+                    margin: const EdgeInsets.only(top: 10, bottom: 12),
+                    decoration: BoxDecoration(
+                      color: _borderColor,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  _MessageActionTile(
+                    icon: Icons.copy_rounded,
+                    label: 'Copier le texte',
+                    color: _primaryColor,
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: message.text));
+                      Navigator.pop(context);
+                      _showSnack('Texte copié', _successGreen);
+                    },
+                  ),
+                  if (message.isUser)
+                    _MessageActionTile(
+                      icon: Icons.edit_rounded,
+                      label: 'Modifier et renvoyer',
+                      color: _blueInfo,
+                      onTap: () {
+                        Navigator.pop(context);
+                        _editAndResend(message);
+                      },
+                    ),
+                  if (!message.isUser)
+                    _MessageActionTile(
+                      icon: Icons.refresh_rounded,
+                      label: 'Régénérer la réponse',
+                      color: _primaryColor,
+                      onTap: () {
+                        Navigator.pop(context);
+                        _regenerateResponse(index);
+                      },
+                    ),
+                  _MessageActionTile(
+                    icon: Icons.delete_rounded,
+                    label: 'Supprimer le message',
+                    color: _errorRed,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _deleteMessage(index);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  void _showSnack(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
+    if (difference.inMinutes < 1) return 'À l’instant';
+    if (difference.inMinutes < 60) return '${difference.inMinutes} min';
+    if (difference.inHours < 24) return '${difference.inHours}h';
+    if (difference.inDays < 7) return '${difference.inDays}j';
+    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+  }
+
+  bool _shouldShowDateSeparator(int index) {
+    if (index == 0) return true;
+    final previous = _chatMessages[index - 1].timestamp;
+    final current = _chatMessages[index].timestamp;
+    return previous.year != current.year ||
+        previous.month != current.month ||
+        previous.day != current.day;
+  }
+
+  String _formatDateSeparator(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDate = DateTime(date.year, date.month, date.day);
+    if (messageDate == today) return 'Aujourd’hui';
+    if (messageDate == today.subtract(const Duration(days: 1))) return 'Hier';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bgColor,
+      appBar: _buildAppBar(),
+      body: Column(
+        children: [
+          if (_chatMessages.isEmpty)
+            _buildWelcomeScreen()
+          else
+            Expanded(child: _buildMessageList()),
+          if (_isLoading) _buildTypingPanel(),
+          _buildInputArea(),
+        ],
+      ),
+      floatingActionButton:
+          _showScrollToBottom
+              ? FloatingActionButton.small(
+                heroTag: null,
+                backgroundColor: _primaryColor,
+                onPressed: _scrollToBottom,
+                child: const Icon(
+                  Icons.arrow_downward_rounded,
+                  color: Colors.white,
+                ),
+              )
+              : null,
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: _cardColor,
+      foregroundColor: _textPrimary,
+      elevation: 0,
+      systemOverlayStyle: SystemUiOverlayStyle.dark,
+      titleSpacing: 0,
+      title: Row(
+        children: [
+          _buildIrisAvatar(size: 40),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Conseiller style',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: _textPrimary,
+                  ),
+                ),
+                Row(
+                  children: [
+                    _StatusDot(),
+                    SizedBox(width: 6),
+                    Text(
+                      'En ligne',
+                      style: TextStyle(fontSize: 12, color: _textSecondary),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        PopupMenuButton<String>(
+          tooltip: 'Options',
+          icon: const Icon(Icons.more_vert_rounded, color: _textSecondary),
+          onSelected: (value) {
+            if (value == 'export') _exportConversation();
+            if (value == 'clear') _clearChat();
+          },
+          itemBuilder:
+              (context) => const [
+                PopupMenuItem(
+                  value: 'export',
+                  child: ListTile(
+                    leading: Icon(Icons.ios_share_rounded),
+                    title: Text('Partager la conversation'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'clear',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_sweep_rounded, color: _errorRed),
+                    title: Text('Effacer'),
+                  ),
+                ),
+              ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWelcomeScreen() {
+    if (_isLoadingUser) {
+      return const Expanded(
+        child: Center(child: CircularProgressIndicator(color: _primaryColor)),
+      );
+    }
+
+    return Expanded(
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: ScaleTransition(
+          scale: _scaleAnimation,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 24, 22, 110),
+            child: Column(
+              children: [
+                _buildUserAvatar(),
+                const SizedBox(height: 24),
+                AnimatedBuilder(
+                  animation: _welcomeController,
+                  builder: (context, child) {
+                    return Transform.translate(
+                      offset: Offset(0, _slideAnimation.value),
+                      child: Opacity(
+                        opacity: _welcomeOpacity.value,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Column(
+                    children: [
+                      Text(
+                        'Conseil style personnel',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Dis-moi l’occasion, ton style ou la pièce que tu veux porter.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: _textSecondary,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 28),
+                _buildModeScroller(compact: false),
+                const SizedBox(height: 14),
+                _buildSuggestionPanel(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserAvatar() {
+    return Hero(
+      tag: 'avatar',
+      child: Container(
+        width: 86,
+        height: 86,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _primaryColor.withValues(alpha: 0.1),
+          border: Border.all(
+            color: _primaryColor.withValues(alpha: 0.18),
+            width: 2,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.white,
+              offset: Offset(-3, -3),
+              blurRadius: 8,
+            ),
+            BoxShadow(
+              color: Color(0x1A0F172A),
+              offset: Offset(4, 4),
+              blurRadius: 10,
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child:
+            _userPhotoUrl.isNotEmpty
+                ? Image.network(_userPhotoUrl, fit: BoxFit.cover)
+                : const Icon(AppIcons.profile, color: _primaryColor, size: 42),
+      ),
+    );
+  }
+
+  Widget _buildIrisAvatar({required double size}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _primaryColor.withValues(alpha: 0.1),
+      ),
+      child: const Icon(AppIcons.style, color: _primaryColor),
+    );
+  }
+
+  Widget _buildSuggestionPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: _borderColor),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.white,
+            offset: Offset(-5, -5),
+            blurRadius: 14,
+          ),
+          BoxShadow(
+            color: Color(0x140F172A),
+            offset: Offset(6, 8),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(AppIcons.style, color: _amberAccent, size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Commencer rapidement',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: _textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children:
+                _suggestions
+                    .map(
+                      (suggestion) => ActionChip(
+                        avatar: Icon(
+                          suggestion.icon,
+                          color: _primaryColor,
+                          size: 18,
+                        ),
+                        label: Text(suggestion.label),
+                        labelStyle: const TextStyle(
+                          color: _textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                        backgroundColor: _bgColor,
+                        side: const BorderSide(color: _borderColor),
+                        onPressed: () => _useSuggestion(suggestion),
+                      ),
+                    )
+                    .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeScroller({required bool compact}) {
+    return SizedBox(
+      width: double.infinity,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          children:
+              _modes.map((mode) {
+                final selected = mode.mode == _selectedMode;
+                return Padding(
+                  padding: EdgeInsets.only(right: compact ? 8 : 10),
+                  child: ChoiceChip(
+                    selected: selected,
+                    avatar: Icon(
+                      mode.icon,
+                      size: 17,
+                      color: selected ? Colors.white : _primaryColor,
+                    ),
+                    label: Text(mode.label),
+                    labelStyle: TextStyle(
+                      color: selected ? Colors.white : _textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: compact ? 12 : 13,
+                    ),
+                    selectedColor: _primaryColor,
+                    backgroundColor: _cardColor,
+                    side: BorderSide(
+                      color:
+                          selected
+                              ? _primaryColor
+                              : _primaryColor.withValues(alpha: 0.18),
+                    ),
+                    onSelected:
+                        _isLoading
+                            ? null
+                            : (_) {
+                              HapticFeedback.selectionClick();
+                              setState(() => _selectedMode = mode.mode);
+                            },
+                  ),
+                );
+              }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageList() {
+    return ListView.builder(
+      controller: _scrollController,
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      itemCount: _chatMessages.length,
+      itemBuilder: (context, index) {
+        final message = _chatMessages[index];
+        return Column(
+          children: [
+            if (_shouldShowDateSeparator(index))
+              _DateSeparator(label: _formatDateSeparator(message.timestamp)),
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 260),
+              builder: (context, value, child) {
+                return Transform.translate(
+                  offset: Offset(0, 10 * (1 - value)),
+                  child: Opacity(opacity: value, child: child),
+                );
+              },
+              child: GestureDetector(
+                onLongPress: () => _showMessageOptions(message, index),
+                child: _buildMessageBubble(message, index),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMessageBubble(ChatMessage message, int index) {
+    final bubbleColor =
+        message.isError
+            ? _errorSoft
+            : message.isUser
+            ? _primaryColor
+            : _cardColor;
+    final textColor = message.isUser ? Colors.white : _textPrimary;
+
+    return Align(
+      alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.84,
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment:
+              message.isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                border:
+                    message.isError
+                        ? Border.all(color: _errorRed.withValues(alpha: 0.25))
+                        : null,
+                borderRadius: BorderRadius.circular(18).copyWith(
+                  bottomRight: message.isUser ? const Radius.circular(4) : null,
+                  bottomLeft: !message.isUser ? const Radius.circular(4) : null,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color:
+                        message.isUser
+                            ? _primaryColor.withValues(alpha: 0.18)
+                            : const Color(0x140F172A),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildMessageContent(message, textColor),
+                  if (message.isError) ...[
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: _retryLastUserMessage,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Réessayer'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: _errorRed,
+                        padding: EdgeInsets.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 5),
+            _buildMessageMeta(message, index),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageContent(ChatMessage message, Color textColor) {
+    final links = _extractLinks(message.text);
+    if (links.isEmpty) {
+      return Text(
+        message.text,
+        style: TextStyle(
+          fontSize: 15,
+          color: message.isError ? _errorRed : textColor,
+          height: 1.42,
+          fontWeight: message.isUser ? FontWeight.w500 : FontWeight.w400,
         ),
       );
     }
 
     final spans = <TextSpan>[];
-    String remainingText = text;
-
-    for (final link in links) {
-      final parts = remainingText.split(link);
-      if (parts.isNotEmpty) {
-        spans.add(TextSpan(
-          text: parts[0],
-          style: TextStyle(
-            fontSize: 16,
-            color: message['role'] == 'user' ? Colors.white : textColor,
-            height: 1.4,
-          ),
-        ));
-
-        spans.add(TextSpan(
-          text: link,
-          style: TextStyle(
-            fontSize: 16,
-            color: message['role'] == 'user' ? Colors.white : Colors.blue[600],
-            decoration: TextDecoration.underline,
-            fontWeight: FontWeight.w500,
-            height: 1.4,
-          ),
-          recognizer: TapGestureRecognizer()
-            ..onTap = () => _launchUrl(link),
-        ));
-
-        remainingText = parts.length > 1 ? parts.sublist(1).join(link) : '';
+    var cursor = 0;
+    for (final match in RegExp(
+      r'https?://[^\s<>()"]+',
+    ).allMatches(message.text)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: message.text.substring(cursor, match.start)));
       }
-    }
-
-    if (remainingText.isNotEmpty) {
-      spans.add(TextSpan(
-        text: remainingText,
-        style: TextStyle(
-          fontSize: 16,
-          color: message['role'] == 'user' ? Colors.white : textColor,
-          height: 1.4,
+      final cleanUrl = match.group(0)!.replaceFirst(RegExp(r'[.,;:!?]+$'), '');
+      spans.add(
+        TextSpan(
+          text: cleanUrl,
+          style: const TextStyle(
+            color: _blueInfo,
+            decoration: TextDecoration.underline,
+            fontWeight: FontWeight.w700,
+          ),
+          recognizer:
+              TapGestureRecognizer()..onTap = () => _launchUrl(cleanUrl),
         ),
-      ));
+      );
+      cursor = match.end;
+    }
+    if (cursor < message.text.length) {
+      spans.add(TextSpan(text: message.text.substring(cursor)));
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isWebSearch ? Colors.blue[50] : bgColor,
-        borderRadius: BorderRadius.circular(12),
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(fontSize: 15, color: textColor, height: 1.42),
+        children: spans,
       ),
-      padding: const EdgeInsets.all(12),
-      child: RichText(
-        text: TextSpan(children: spans),
+    );
+  }
+
+  Widget _buildMessageMeta(ChatMessage message, int index) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          Text(
+            _formatTimestamp(message.timestamp),
+            style: const TextStyle(fontSize: 11, color: _textSecondary),
+          ),
+          if (_extractLinks(message.text).isNotEmpty)
+            const _MetaBadge(
+              icon: Icons.link_rounded,
+              label: 'Liens',
+              color: _primaryColor,
+            ),
+          if (message.usedWebSearch)
+            const _MetaBadge(
+              icon: Icons.search_rounded,
+              label: 'Web',
+              color: _blueInfo,
+            ),
+          _InlineAction(
+            icon: Icons.copy_rounded,
+            tooltip: 'Copier',
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: message.text));
+              _showSnack('Texte copié', _successGreen);
+            },
+          ),
+          if (message.isUser)
+            _InlineAction(
+              icon: Icons.edit_rounded,
+              tooltip: 'Modifier et renvoyer',
+              onTap: () => _editAndResend(message),
+            ),
+          if (!message.isUser)
+            _InlineAction(
+              icon: Icons.refresh_rounded,
+              tooltip: 'Régénérer',
+              onTap: () => _regenerateResponse(index),
+            ),
+          _InlineAction(
+            icon: Icons.delete_outline_rounded,
+            tooltip: 'Supprimer',
+            onTap: () => _deleteMessage(index),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypingPanel() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      child: Row(
+        children: [
+          _buildIrisAvatar(size: 36),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x140F172A),
+                  blurRadius: 12,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildTypingIndicator(),
+                const SizedBox(width: 8),
+                const Text(
+                  'Réponse en cours...',
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: _textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: _stopGeneration,
+            icon: const Icon(Icons.stop_circle_outlined, size: 18),
+            label: const Text('Stop'),
+            style: TextButton.styleFrom(foregroundColor: _errorRed),
+          ),
+        ],
       ),
     );
   }
@@ -369,1016 +1318,314 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (index) {
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2.0),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: AnimatedBuilder(
             animation: _typingController,
             builder: (context, child) {
-              final animationValue = (index + 1) * 0.2;
-              final opacity = _typingController.value > animationValue
-                  ? _typingController.value - animationValue
-                  : 0.0;
-
-              return Opacity(
-                opacity: opacity.clamp(0.0, 1.0),
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: Colors.green[700],
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              );
+              final phase = (_typingController.value + index * 0.22) % 1;
+              return Opacity(opacity: 0.35 + (phase * 0.65), child: child);
             },
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: _primaryColor,
+                shape: BoxShape.circle,
+              ),
+            ),
           ),
         );
       }),
     );
   }
 
-  Widget _buildUserAvatar() {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: [Colors.green[400]!, Colors.green[700]!],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.green[400]!.withOpacity(0.3),
-            blurRadius: 15,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: CircleAvatar(
-        radius: 25,
-        backgroundColor: Colors.transparent,
-        backgroundImage: _userPhotoUrl.isNotEmpty
-            ? NetworkImage(_userPhotoUrl)
-            : null,
-        child: _userPhotoUrl.isEmpty
-            ? const Icon(
-          Icons.person,
-          color: Colors.white,
-          size: 30,
-        )
-            : null,
-      ),
-    );
-  }
-
-  Widget _buildWelcomeScreen() {
-    if (_isLoadingUser) {
-      return Expanded(
-        child: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.green[700]!),
-          ),
-        ),
-      );
-    }
-
-    return Expanded(
-      child: AnimatedBuilder(
-        animation: _fadeAnimation,
-        builder: (context, child) {
-          return FadeTransition(
-            opacity: _fadeAnimation,
-            child: Transform.scale(
-              scale: _scaleAnimation.value,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(bottom: 100),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Hero(
-                          tag: 'avatar',
-                          child: _buildUserAvatar(),
-                        ),
-                        const SizedBox(height: 40),
-                        AnimatedBuilder(
-                          animation: _welcomeOpacity,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, _slideAnimation.value),
-                              child: Opacity(
-                                opacity: _welcomeOpacity.value,
-                                child: Column(
-                                  children: [
-                                    ShaderMask(
-                                      shaderCallback: (bounds) => LinearGradient(
-                                        colors: [
-                                          Colors.green[600]!,
-                                          Colors.green[800]!,
-                                        ],
-                                      ).createShader(bounds),
-                                      child: Text(
-                                        'Salut ${_userName.split(' ')[0]} ! 👋',
-                                        style: const TextStyle(
-                                          fontSize: 28,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      'Comment puis-je t\'aider aujourd\'hui ?',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        color: Colors.green[600],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 40),
-                        AnimatedBuilder(
-                          animation: _welcomeController,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, _slideAnimation.value + 20),
-                              child: Opacity(
-                                opacity: _welcomeOpacity.value,
-                                child: Container(
-                                  padding: const EdgeInsets.all(24),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.white,
-                                        Colors.green[50]!,
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(20),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.green[200]!.withOpacity(0.3),
-                                        blurRadius: 20,
-                                        spreadRadius: 5,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Icon(
-                                        Icons.chat_bubble_outline,
-                                        color: Colors.green[700],
-                                        size: 32,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        'Je suis Iris, ta conseillère mode africaine personnelle. Pose-moi tes questions sur la mode, les styles traditionnels, ou demande-moi des conseils !',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          color: Colors.grey[700],
-                                          fontWeight: FontWeight.w400,
-                                          height: 1.5,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Hero(
-              tag: 'app_avatar',
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [Colors.green[700]!, Colors.green[900]!],
-                  ),
-                ),
-                child: const CircleAvatar(
-                  backgroundColor: Colors.transparent,
-                  child: Icon(
-                    Icons.person,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Iris - Elegant Faso',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  Text(
-                    'Conseillère Mode Africaine',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.green[700],
-        elevation: 0,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.green[700]!, Colors.green[900]!],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_sweep),
-            onPressed: _clearChat,
-            tooltip: 'Effacer la conversation',
-          ),
-          IconButton(
-            icon: const Icon(Icons.content_copy),
-            onPressed: _exportConversation,
-            tooltip: 'Exporter la conversation',
-          ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.green[700]!.withOpacity(0.05),
-              Colors.green[50]!.withOpacity(0.3),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: Column(
-          children: [
-            if (_messages.isEmpty)
-              _buildWelcomeScreen()
-            else
-              Expanded(
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top: 16,
-                    bottom: 100,
-                  ),
-                  itemCount: _messages.length,
-                  itemBuilder: (context, index) {
-                    final message = _messages[index];
-                    final isUserMessage = message['role'] == 'user';
-                    final timestamp = message['timestamp'] as DateTime;
-                    final isWebSearch = message['isWebSearch'] == true;
-
-                    return TweenAnimationBuilder<double>(
-                      tween: Tween<double>(begin: 0.0, end: 1.0),
-                      duration: Duration(milliseconds: 300 + (index * 50)),
-                      builder: (context, value, child) {
-                        return Transform.translate(
-                          offset: Offset(0, 20 * (1 - value)),
-                          child: Opacity(
-                            opacity: value,
-                            child: GestureDetector(
-                              onLongPress: () => _showMessageOptions(message, index),
-                              child: _buildMessageBubble(
-                                  message, isUserMessage, timestamp, isWebSearch),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            if (_isLoading)
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [Colors.green[100]!, Colors.green[200]!],
-                        ),
-                      ),
-                      child: CircleAvatar(
-                        backgroundColor: Colors.transparent,
-                        child: Icon(
-                          Icons.person,
-                          color: Colors.green[700],
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.grey[100]!, Colors.grey[200]!],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 5,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildTypingIndicator(),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Iris écrit...',
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            _buildInputArea(),
-          ],
-        ),
-      ),
-      floatingActionButton: _showScrollToBottom
-          ? FloatingActionButton.small(
-        backgroundColor: Colors.green[700],
-        onPressed: _scrollToBottom,
-        child: const Icon(Icons.arrow_downward, color: Colors.white),
-      )
-          : null,
-    );
-  }
-
   Widget _buildInputArea() {
+    final canSend = _controller.text.trim().isNotEmpty && !_isLoading;
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, Colors.green[50]!.withOpacity(0.3)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        boxShadow: [
-          BoxShadow(
-            offset: const Offset(0, -2),
-            blurRadius: 15,
-            color: Colors.black.withOpacity(0.1),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        color: _cardColor,
+        border: Border(top: BorderSide(color: _borderColor, width: 1)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_webSearchEnabled)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.blue[50]!, Colors.blue[100]!],
-                ),
-              ),
-              child: Row(
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildModeScroller(compact: true),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Icon(
-                    Icons.search,
-                    color: Colors.blue[800],
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Recherche web activée',
-                    style: TextStyle(
-                      color: Colors.blue[800],
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() => _webSearchEnabled = false);
-                      HapticFeedback.lightImpact();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.blue[200],
-                      ),
-                      child: Icon(
-                        Icons.close,
-                        color: Colors.blue[800],
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: _webSearchEnabled
-                          ? LinearGradient(
-                        colors: [Colors.blue[300]!, Colors.blue[600]!],
-                      )
-                          : null,
-                      boxShadow: _webSearchEnabled
-                          ? [
-                        BoxShadow(
-                          color: Colors.blue[300]!.withOpacity(0.5),
-                          blurRadius: 8,
-                          spreadRadius: 2,
-                        ),
-                      ]
-                          : null,
-                    ),
+                  Tooltip(
+                    message:
+                        _webSearchEnabled
+                            ? 'Recherche web activée'
+                            : 'Activer la recherche web',
                     child: IconButton(
                       icon: Icon(
-                        Icons.search,
-                        color: _webSearchEnabled ? Colors.white : Colors.grey[600],
+                        _webSearchEnabled
+                            ? Icons.travel_explore_rounded
+                            : Icons.search_rounded,
+                        color: _webSearchEnabled ? _blueInfo : _textSecondary,
                       ),
-                      onPressed: () {
-                        setState(() {
-                          _webSearchEnabled = !_webSearchEnabled;
-                        });
-                        HapticFeedback.lightImpact();
-                      },
-                      tooltip: 'Recherche web',
+                      onPressed:
+                          _isLoading
+                              ? null
+                              : () => setState(
+                                () => _webSearchEnabled = !_webSearchEnabled,
+                              ),
                     ),
                   ),
-                  const SizedBox(width: 8),
                   Expanded(
                     child: Container(
+                      constraints: const BoxConstraints(maxHeight: 128),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.grey[50]!, Colors.white],
-                        ),
-                        borderRadius: BorderRadius.circular(25),
+                        color: _bgColor,
+                        borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: _webSearchEnabled
-                              ? Colors.blue[300]!
-                              : Colors.grey[300]!,
-                          width: 1,
+                          color:
+                              _webSearchEnabled
+                                  ? _blueInfo.withValues(alpha: 0.35)
+                                  : _borderColor,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.08),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
                       ),
                       child: TextField(
                         controller: _controller,
                         focusNode: _textFieldFocus,
+                        minLines: 1,
+                        maxLines: 5,
+                        textInputAction: TextInputAction.send,
+                        style: const TextStyle(
+                          color: _textPrimary,
+                          fontSize: 15,
+                        ),
                         decoration: InputDecoration(
-                          hintText: _webSearchEnabled
-                              ? 'Chercher sur le web...'
-                              : 'Écris ton message...',
-                          hintStyle: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 15,
-                          ),
+                          hintText:
+                              _webSearchEnabled
+                                  ? 'Message avec recherche web...'
+                                  : 'Écris ton message...',
+                          hintStyle: const TextStyle(color: _textSecondary),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 14,
+                            horizontal: 16,
+                            vertical: 12,
                           ),
-                          suffixIcon: _controller.text.isNotEmpty
-                              ? IconButton(
-                            icon: Icon(
-                              Icons.close,
-                              color: Colors.grey[500],
-                            ),
-                            onPressed: () {
-                              _controller.clear();
-                              setState(() {});
-                            },
-                          )
-                              : null,
-                        ),
-                        onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) => _sendMessage(),
-                        enabled: !_isLoading,
-                        maxLines: null,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedBuilder(
-                    animation: _sendButtonController,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _sendButtonController.value,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: _controller.text.isNotEmpty
-                                ? LinearGradient(
-                              colors: [Colors.green[600]!, Colors.green[800]!],
-                            )
-                                : null,
-                            boxShadow: _controller.text.isNotEmpty
-                                ? [
-                              BoxShadow(
-                                color: Colors.green[600]!.withOpacity(0.4),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ]
-                                : null,
-                          ),
-                          child: CircleAvatar(
-                            backgroundColor: Colors.transparent,
-                            child: IconButton(
-                              icon: Icon(
-                                _isLoading ? Icons.hourglass_bottom : Icons.send_rounded,
-                                color: _controller.text.isNotEmpty
-                                    ? Colors.white
-                                    : Colors.grey[400],
-                              ),
-                              onPressed: _controller.text.isNotEmpty && !_isLoading
-                                  ? _sendMessage
+                          suffixIcon:
+                              _controller.text.isNotEmpty
+                                  ? IconButton(
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      color: _textSecondary,
+                                    ),
+                                    onPressed: _controller.clear,
+                                  )
                                   : null,
+                        ),
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    transitionBuilder:
+                        (child, animation) => ScaleTransition(
+                          scale: animation,
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          ),
+                        ),
+                    child:
+                        _isLoading
+                            ? IconButton.filledTonal(
+                              key: const ValueKey('stop'),
+                              tooltip: 'Stop',
+                              onPressed: _stopGeneration,
+                              icon: const Icon(Icons.stop_rounded),
+                              color: _errorRed,
+                            )
+                            : IconButton.filled(
+                              key: const ValueKey('send'),
+                              tooltip: 'Envoyer',
+                              onPressed: canSend ? _sendMessage : null,
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    canSend ? _primaryColor : _borderColor,
+                                foregroundColor:
+                                    canSend ? Colors.white : _textSecondary,
+                              ),
+                              icon: const Icon(Icons.send_rounded),
                             ),
-                          ),
-                        ),
-                      );
-                    },
                   ),
                 ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(
-      Map<String, dynamic> message, bool isUserMessage, DateTime timestamp, bool isWebSearch) {
-    final emotion = message['emotion'] ?? 'neutre';
-
-    // Couleurs basées sur l'émotion
-    final emotionColors = {
-      'joie': [Colors.orange[50]!, Colors.orange[800]!],
-      'excitation': [Colors.yellow[50]!, Colors.yellow[800]!],
-      'stress': [Colors.blue[50]!, Colors.blue[800]!],
-      'tristesse': [Colors.purple[50]!, Colors.purple[800]!],
-      'colère': [Colors.red[50]!, Colors.red[800]!],
-      'confiance': [Colors.green[50]!, Colors.green[800]!],
-      'doute': [Colors.indigo[50]!, Colors.indigo[800]!],
-      'fatigue': [Colors.brown[50]!, Colors.brown[800]!],
-      'curiosité': [Colors.teal[50]!, Colors.teal[800]!],
-      'amour': [Colors.pink[50]!, Colors.pink[800]!],
-      'neutre': [Colors.grey[50]!, Colors.grey[800]!],
-    };
-
-    final colors = emotionColors[emotion] ?? [Colors.grey[50]!, Colors.grey[800]!];
-
-    return Align(
-      alignment: isUserMessage ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.85,
-        ),
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment:
-          isUserMessage ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: isUserMessage
-                    ? LinearGradient(
-                  colors: [Colors.green[600]!, Colors.green[800]!],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-                    : message['isError'] == true
-                    ? LinearGradient(
-                  colors: [Colors.red[50]!, Colors.red[100]!],
-                )
-                    : isWebSearch
-                    ? LinearGradient(
-                  colors: [Colors.blue[50]!, Colors.blue[100]!],
-                )
-                    : LinearGradient(
-                  colors: [colors[0], colors[0]],
-                ),
-                borderRadius: BorderRadius.circular(20).copyWith(
-                  bottomRight: isUserMessage ? const Radius.circular(4) : null,
-                  bottomLeft: !isUserMessage ? const Radius.circular(4) : null,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: _buildMessageContent(message),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: isUserMessage
-                  ? MainAxisAlignment.end
-                  : MainAxisAlignment.start,
-              children: [
-                if (!isUserMessage) ...[
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [Colors.green[100]!, Colors.green[200]!],
-                      ),
-                    ),
-                    child: CircleAvatar(
-                      radius: 12,
-                      backgroundColor: Colors.transparent,
-                      child: Icon(
-                        Icons.person,
-                        color: Colors.green[700],
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Text(
-                  _formatTimestamp(timestamp),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-                if (message['hasWebSearch'] == true) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.search,
-                          color: Colors.blue[700],
-                          size: 12,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Web',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.blue[700],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (message['hasLinks'] == true) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.orange[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.link,
-                          color: Colors.orange[700],
-                          size: 12,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Liens',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.orange[700],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (isUserMessage) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [Colors.green[400]!, Colors.green[700]!],
-                      ),
-                    ),
-                    child: CircleAvatar(
-                      radius: 12,
-                      backgroundColor: Colors.transparent,
-                      backgroundImage: _userPhotoUrl.isNotEmpty
-                          ? NetworkImage(_userPhotoUrl)
-                          : null,
-                      child: _userPhotoUrl.isEmpty
-                          ? const Icon(
-                        Icons.person,
-                        color: Colors.white,
-                        size: 16,
-                      )
-                          : null,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final difference = now.difference(timestamp);
-
-    if (difference.inMinutes < 1) {
-      return 'À l\'instant';
-    } else if (difference.inMinutes < 60) {
-      return 'Il y a ${difference.inMinutes} min';
-    } else if (difference.inHours < 24) {
-      return 'Il y a ${difference.inHours}h';
-    } else if (difference.inDays < 7) {
-      return 'Il y a ${difference.inDays}j';
-    } else {
-      return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
-    }
-  }
-
-  void _clearChat() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Effacer la conversation'),
-        content: const Text('Êtes-vous sûr de vouloir effacer toute la conversation ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _messages.clear();
-              });
-              Navigator.pop(context);
-              HapticFeedback.lightImpact();
-            },
-            child: const Text('Effacer'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showMessageOptions(Map<String, dynamic> message, int index) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              height: 4,
-              width: 40,
-              margin: const EdgeInsets.only(top: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copier le texte'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: message['text']));
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Texte copié !'),
-                    backgroundColor: Colors.green[600],
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                );
-              },
-            ),
-            if (message['role'] == 'model') ...[
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: const Text('Régénérer la réponse'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _regenerateResponse(index);
-                },
               ),
             ],
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Supprimer le message',
-                  style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(context);
-                _deleteMessage(index);
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
+          ),
         ),
       ),
     );
   }
+}
 
-  void _regenerateResponse(int index) async {
-    if (index <= 0) return;
+class _IrisModeOption {
+  const _IrisModeOption({
+    required this.mode,
+    required this.label,
+    required this.hint,
+    required this.icon,
+  });
 
-    final userMessage = _messages[index - 1];
-    final isWebSearch = userMessage['hasWebSearch'] ?? false;
-    final dominantEmotion = userMessage['emotion'] ?? 'neutre';
+  final _IrisMode mode;
+  final String label;
+  final String hint;
+  final IconData icon;
+}
 
-    setState(() {
-      _messages.removeAt(index);
-      _isLoading = true;
-    });
+class _PromptSuggestion {
+  const _PromptSuggestion({
+    required this.label,
+    required this.prompt,
+    required this.icon,
+  });
 
-    try {
-      String response;
-      if (isWebSearch) {
-        response = await _geminiService.searchFashionInfo(userMessage['text']);
-      } else {
-        response = await _geminiService.generateContent(userMessage['text']);
-      }
+  final String label;
+  final String prompt;
+  final IconData icon;
+}
 
-      setState(() {
-        _messages.insert(index, {
-          'role': 'model',
-          'text': response,
-          'timestamp': DateTime.now(),
-          'hasLinks': _extractLinks(response).isNotEmpty,
-          'isWebSearch': isWebSearch,
-          'emotion': dominantEmotion,
-        });
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _messages.insert(index, {
-          'role': 'model',
-          'text': 'Désolé, une erreur s\'est produite lors de la régénération.',
-          'timestamp': DateTime.now(),
-          'isError': true,
-          'emotion': 'neutre',
-        });
-        _isLoading = false;
-      });
-    }
+class _StatusDot extends StatelessWidget {
+  const _StatusDot();
 
-    _scrollToBottom();
-  }
-
-  void _deleteMessage(int index) {
-    setState(() {
-      _messages.removeAt(index);
-    });
-    HapticFeedback.lightImpact();
-  }
-
-  Future<void> _exportConversation() async {
-    if (_messages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Aucune conversation à exporter'),
-          backgroundColor: Colors.orange[600],
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
-
-    final StringBuffer buffer = StringBuffer();
-    buffer.writeln('Conversation avec Iris - Elegant Faso');
-    buffer.writeln('Exportée le ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}');
-    buffer.writeln('${'-' * 50}\n');
-
-    for (final message in _messages) {
-      final role = message['role'] == 'user' ? _userName : 'Iris';
-      final timestamp = message['timestamp'] as DateTime;
-      final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}';
-
-      buffer.writeln('[$timeStr] $role:');
-      buffer.writeln(message['text']);
-      buffer.writeln();
-    }
-
-    await Clipboard.setData(ClipboardData(text: buffer.toString()));
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Conversation copiée dans le presse-papiers !'),
-        backgroundColor: Colors.green[600],
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 7,
+      height: 7,
+      decoration: const BoxDecoration(
+        color: _ChatScreenState._successGreen,
+        shape: BoxShape.circle,
       ),
+    );
+  }
+}
+
+class _DateSeparator extends StatelessWidget {
+  const _DateSeparator({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: _ChatScreenState._cardColor,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: _ChatScreenState._borderColor),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: _ChatScreenState._textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetaBadge extends StatelessWidget {
+  const _MetaBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 12),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineAction extends StatelessWidget {
+  const _InlineAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: Icon(icon, size: 15, color: _ChatScreenState._textSecondary),
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageActionTile extends StatelessWidget {
+  const _MessageActionTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(label, style: TextStyle(color: color)),
+      onTap: onTap,
     );
   }
 }

@@ -1,0 +1,57 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_feather_icons/flutter_feather_icons.dart';
+
+class AppIcons {
+  const AppIcons._();
+
+  static const IconData salon = FeatherIcons.compass;
+  static const IconData discover = FeatherIcons.compass;
+  static const IconData shop = FeatherIcons.shoppingBag;
+  static const IconData cart = FeatherIcons.shoppingCart;
+  static const IconData talents = FeatherIcons.users;
+  static const IconData publicSpace = FeatherIcons.compass;
+  static const IconData today = FeatherIcons.sun;
+  static const IconData style = FeatherIcons.feather;
+  static const IconData wardrobe = FeatherIcons.package;
+  static const IconData profile = FeatherIcons.user;
+  static const IconData creator = FeatherIcons.penTool;
+  static const IconData boutique = FeatherIcons.home;
+  static const IconData admin = FeatherIcons.shield;
+  static const IconData messages = FeatherIcons.messageCircle;
+  static const IconData notifications = FeatherIcons.bell;
+  static const IconData measurements = FeatherIcons.maximize2;
+  static const IconData recommendations = FeatherIcons.target;
+  static const IconData creations = FeatherIcons.scissors;
+  static const IconData appointments = FeatherIcons.calendar;
+  static const IconData clients = FeatherIcons.users;
+  static const IconData stats = FeatherIcons.barChart2;
+  static const IconData orders = FeatherIcons.clipboard;
+  static const IconData revenue = FeatherIcons.trendingUp;
+  static const IconData coupons = FeatherIcons.tag;
+  static const IconData moderation = FeatherIcons.shield;
+  static const IconData settings = FeatherIcons.settings;
+  static const IconData favorites = FeatherIcons.heart;
+  static const IconData inspiration = FeatherIcons.image;
+  static const IconData video = FeatherIcons.playCircle;
+  static const IconData article = FeatherIcons.fileText;
+  static const IconData search = FeatherIcons.search;
+  static const IconData back = FeatherIcons.chevronRight;
+  static const IconData refresh = FeatherIcons.refreshCw;
+  static const IconData share = FeatherIcons.share2;
+  static const IconData edit = FeatherIcons.edit2;
+  static const IconData add = FeatherIcons.plus;
+  static const IconData close = FeatherIcons.x;
+  static const IconData info = FeatherIcons.helpCircle;
+  static const IconData success = FeatherIcons.checkCircle;
+  static const IconData guide = FeatherIcons.info;
+  static const IconData logout = FeatherIcons.logOut;
+  static const IconData imagePicker = FeatherIcons.image;
+  static const IconData camera = FeatherIcons.camera;
+  static const IconData location = FeatherIcons.mapPin;
+  static const IconData community = FeatherIcons.users;
+  static const IconData calendar = FeatherIcons.calendar;
+  static const IconData save = FeatherIcons.bookmark;
+  static const IconData history = FeatherIcons.clock;
+  static const IconData award = FeatherIcons.award;
+  static const IconData copy = FeatherIcons.copy;
+}

@@ -1,244 +1,574 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-
+import '../../../../core/account_roles.dart';
+import '../../../../design/ecommerce_widgets.dart';
+import '../../../../design/modern_design_system.dart';
+import '../../../../models/createur/creator_customer.dart';
+import '../../../../services/createur/creator_appointment_service.dart';
+import '../../../../services/createur/creator_customer_service.dart';
+import '../../../widgets/common/app_action_empty_state.dart';
 import '../../messages/chat_screen.dart';
-import '../widgets/empty_state.dart';
-import '../widgets/sheet_handle.dart';
-import '../widgets/shimmer_effects.dart';
-import '../widgets/detail_row.dart';
+import '../../messages/messages_entry_screen.dart';
 import '../../messages/user_model.dart';
-
-
+import '../widgets/creator_customer_card.dart';
 
 class ClientsTab extends StatefulWidget {
-  final User user;
+  const ClientsTab({super.key, required this.user});
 
-  const ClientsTab({Key? key, required this.user}) : super(key: key);
+  final User user;
 
   @override
   State<ClientsTab> createState() => _ClientsTabState();
 }
 
 class _ClientsTabState extends State<ClientsTab> {
-  String _searchQuery = '';
-  UserModel? _currentUserModel;
+  final CreatorAppointmentService _appointmentService =
+      CreatorAppointmentService();
+  final CreatorCustomerService _customerService = CreatorCustomerService();
+  final TextEditingController _searchController = TextEditingController();
+
+  String _query = '';
+  String _filter = 'Récents';
+
+  static const _filters = ['Récents', 'À relancer', 'RDV', 'Mensurations'];
 
   @override
-  void initState() {
-    super.initState();
-    _loadCurrentUser();
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  Future<void> _loadCurrentUser() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.user.uid)
-          .get();
-
-      if (doc.exists) {
-        setState(() {
-          _currentUserModel = UserModel.fromDocument(doc);
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading current user: $e');
-    }
+  List<CreatorCustomer> _applyFilters(List<CreatorCustomer> customers) {
+    final query = _query.trim().toLowerCase();
+    return customers.where((customer) {
+      final matchesQuery =
+          query.isEmpty ||
+          '${customer.name} ${customer.email} ${customer.phone}'
+              .toLowerCase()
+              .contains(query);
+      final matchesFilter = switch (_filter) {
+        'À relancer' => customer.appointmentsCount == 0,
+        'RDV' => customer.appointmentsCount > 0,
+        'Mensurations' => customer.hasMeasurements,
+        _ => true,
+      };
+      return matchesQuery && matchesFilter;
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Mes Clients',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).textTheme.bodyLarge?.color,
-                  fontSize: 18,
+    return Scaffold(
+      backgroundColor: ModernColors.canvas,
+      body: StreamBuilder(
+        stream: _appointmentService.watchAppointments(widget.user.uid),
+        builder: (context, appointmentSnapshot) {
+          final appointments = appointmentSnapshot.data ?? const [];
+          return FutureBuilder<List<CreatorCustomer>>(
+            future: _customerService.loadCustomers(
+              creatorId: widget.user.uid,
+              appointments: appointments,
+            ),
+            builder: (context, snapshot) {
+              final customers = _applyFilters(snapshot.data ?? const []);
+              return RefreshIndicator(
+                onRefresh: () async => setState(() {}),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                  children: [
+                    _ClientsHeader(
+                      controller: _searchController,
+                      query: _query,
+                      total: snapshot.data?.length ?? 0,
+                      withAppointments:
+                          snapshot.data
+                              ?.where((client) => client.appointmentsCount > 0)
+                              .length ??
+                          0,
+                      onQueryChanged: (value) => setState(() => _query = value),
+                    ),
+                    const SizedBox(height: 12),
+                    _FilterRail(
+                      filters: _filters,
+                      selected: _filter,
+                      onSelected: (value) => setState(() => _filter = value),
+                    ),
+                    const SizedBox(height: 16),
+                    if (snapshot.connectionState == ConnectionState.waiting ||
+                        appointmentSnapshot.connectionState ==
+                            ConnectionState.waiting)
+                      const _LoadingClients()
+                    else if (snapshot.hasError || appointmentSnapshot.hasError)
+                      const _ClientState(
+                        icon: Icons.error_outline_rounded,
+                        title: 'Clients indisponibles',
+                        message: 'Impossible de charger votre CRM.',
+                      )
+                    else if (customers.isEmpty)
+                      _ClientState(
+                        icon: Icons.people_outline_rounded,
+                        title: 'Aucun client',
+                        message:
+                            _filter == 'Récents' && _query.trim().isEmpty
+                                ? 'Les abonnés et clients avec rendez-vous apparaîtront ici.'
+                                : 'Aucun client ne correspond à ce filtre.',
+                        actionLabel:
+                            _filter == 'Récents' && _query.trim().isEmpty
+                                ? 'Ouvrir la messagerie'
+                                : 'Voir tous',
+                        onAction:
+                            _filter == 'Récents' && _query.trim().isEmpty
+                                ? _openMessages
+                                : _clearFilters,
+                      )
+                    else
+                      for (final customer in customers) ...[
+                        CreatorCustomerCard(
+                          customer: customer,
+                          onMessage: () => _startChatWithCustomer(customer),
+                          onAppointment: () => _createAppointment(customer),
+                          onDetails: () => _showCustomerSheet(customer),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                  ],
                 ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _openMessages() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (_) =>
+                const MessagesEntryScreen(roleOverride: AccountRoles.createur),
+      ),
+    );
+  }
+
+  Future<void> _startChatWithCustomer(CreatorCustomer customer) async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final docs = await Future.wait([
+        firestore.collection('users').doc(widget.user.uid).get(),
+        firestore.collection('users').doc(customer.id).get(),
+      ]);
+      if (!mounted) return;
+
+      if (!docs.first.exists || !docs.last.exists) {
+        _openMessages();
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (_) => ChatScreen(
+                utilisateurCourant: UserModel.fromDocument(docs.first),
+                autreUtilisateur: UserModel.fromDocument(docs.last),
+                currentRole: AccountRoles.createur,
+                otherRole: AccountRoles.client,
               ),
-              IconButton(
-                icon: Icon(Icons.filter_list, color: Theme.of(context).primaryColor),
-                onPressed: () => _showClientFilterOptions(context),
-              ),
-            ],
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Conversation indisponible pour ce client.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _createAppointment(CreatorCustomer customer) async {
+    final controller = TextEditingController(text: 'Rendez-vous style');
+    var selectedDate = DateTime.now().add(const Duration(days: 1));
+    var selectedTime = const TimeOfDay(hour: 10, minute: 0);
+
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setSheetState) {
+              final scheduledAt = DateTime(
+                selectedDate.year,
+                selectedDate.month,
+                selectedDate.day,
+                selectedTime.hour,
+                selectedTime.minute,
+              );
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: ModernColors.surface,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 42,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: ModernColors.line,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          customer.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: ModernColors.ink,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: controller,
+                          decoration: InputDecoration(
+                            labelText: 'Objet',
+                            prefixIcon: const Icon(Icons.checkroom_rounded),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: selectedDate,
+                                    firstDate: DateTime.now(),
+                                    lastDate: DateTime.now().add(
+                                      const Duration(days: 180),
+                                    ),
+                                  );
+                                  if (picked != null) {
+                                    setSheetState(() => selectedDate = picked);
+                                  }
+                                },
+                                icon: const Icon(Icons.event_rounded),
+                                label: Text(
+                                  '${scheduledAt.day}/${scheduledAt.month}',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picked = await showTimePicker(
+                                    context: context,
+                                    initialTime: selectedTime,
+                                  );
+                                  if (picked != null) {
+                                    setSheetState(() => selectedTime = picked);
+                                  }
+                                },
+                                icon: const Icon(Icons.schedule_rounded),
+                                label: Text(selectedTime.format(context)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: () => Navigator.pop(context, true),
+                          icon: const Icon(Icons.event_available_rounded),
+                          label: const Text('Créer le RDV'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
-          const SizedBox(height: 16),
+    );
+
+    if (created != true) {
+      controller.dispose();
+      return;
+    }
+
+    final date = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+    final reason =
+        controller.text.trim().isEmpty
+            ? 'Rendez-vous style'
+            : controller.text.trim();
+    controller.dispose();
+
+    try {
+      await _appointmentService.createAppointment(
+        creatorId: widget.user.uid,
+        clientId: customer.id,
+        clientName: customer.name,
+        clientEmail: customer.email,
+        date: date,
+        reason: reason,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rendez-vous créé.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de créer ce rendez-vous.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _filter = 'Récents';
+      _query = '';
+      _searchController.clear();
+    });
+  }
+
+  void _showCustomerSheet(CreatorCustomer customer) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder:
+          (_) => _CustomerSheet(
+            customer: customer,
+            onMessage: () {
+              Navigator.pop(context);
+              _startChatWithCustomer(customer);
+            },
+            onAppointment: () {
+              Navigator.pop(context);
+              _createAppointment(customer);
+            },
+          ),
+    );
+  }
+}
+
+class _ClientsHeader extends StatelessWidget {
+  const _ClientsHeader({
+    required this.controller,
+    required this.query,
+    required this.total,
+    required this.withAppointments,
+    required this.onQueryChanged,
+  });
+
+  final TextEditingController controller;
+  final String query;
+  final int total;
+  final int withAppointments;
+  final ValueChanged<String> onQueryChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      elevated: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Clients',
+            style: TextStyle(
+              color: ModernColors.ink,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$total contacts • $withAppointments avec rendez-vous',
+            style: const TextStyle(color: ModernColors.inkSoft),
+          ),
+          const SizedBox(height: 12),
           TextField(
+            controller: controller,
+            onChanged: onQueryChanged,
             decoration: InputDecoration(
-              hintText: 'Rechercher...',
-              prefixIcon: Icon(Icons.search, color: Theme.of(context).hintColor),
+              hintText: 'Rechercher un client...',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon:
+                  query.isEmpty
+                      ? null
+                      : IconButton(
+                        onPressed: () {
+                          controller.clear();
+                          onQueryChanged('');
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
               filled: true,
-              fillColor: Theme.of(context).cardColor,
+              fillColor: ModernColors.canvas,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
             ),
-            onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _buildClientsList(),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildClientsList() {
-    if (_currentUserModel == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
+class _FilterRail extends StatelessWidget {
+  const _FilterRail({
+    required this.filters,
+    required this.selected,
+    required this.onSelected,
+  });
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.user.uid)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const ShimmerList();
-        }
+  final List<String> filters;
+  final String selected;
+  final ValueChanged<String> onSelected;
 
-        final createurData = snapshot.data!.data() as Map<String, dynamic>? ?? {};
-        final clientsIds = List<String>.from(createurData['followers'] ?? []);
-
-        if (clientsIds.isEmpty) {
-          return EmptyState(
-            icon: Icons.people_outline,
-            message: 'Aucun client pour le moment',
-            actionText: 'Inviter des clients',
-            onAction: () => _showInviteDialog(context),
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = filters[index];
+          return ChoiceChip(
+            label: Text(filter),
+            selected: filter == selected,
+            onSelected: (_) => onSelected(filter),
           );
-        }
-
-        return FutureBuilder<QuerySnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .where(FieldPath.documentId, whereIn: clientsIds)
-              .get(),
-          builder: (context, userSnapshot) {
-            if (userSnapshot.connectionState == ConnectionState.waiting) {
-              return const ShimmerList();
-            }
-
-            if (userSnapshot.hasError || !userSnapshot.hasData) {
-              return EmptyState(
-                icon: Icons.error,
-                message: 'Erreur de chargement des clients',
-              );
-            }
-
-            final clients = userSnapshot.data!.docs
-                .where((doc) => _matchesSearch(doc, _searchQuery))
-                .toList();
-
-            return RefreshIndicator(
-              onRefresh: () async => _loadCurrentUser(),
-              color: const Color(0xFF4A6FA5),
-              child: ListView.separated(
-                itemCount: clients.length,
-                separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey[200]),
-                itemBuilder: (context, index) => _ClientTile(
-                  client: clients[index],
-                  currentUser: _currentUserModel!,
-                  followedAt: createurData['followersDetails']?[clients[index].id]?['followedAt'] as Timestamp?,
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  bool _matchesSearch(DocumentSnapshot doc, String query) {
-    if (query.isEmpty) return true;
-
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    final name = data['name']?.toString().toLowerCase() ?? '';
-    final email = data['email']?.toString().toLowerCase() ?? '';
-
-    return name.contains(query) || email.contains(query);
-  }
-
-  void _showInviteDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Inviter des clients'),
-          content: const Text('Partagez votre profil pour inviter plus de clients'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _shareProfile();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4A6FA5),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Partager'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _shareProfile() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Lien de partage copié dans le presse-papier'),
-        backgroundColor: Color(0xFF2A9D8F),
+        },
       ),
     );
   }
+}
 
-  void _showClientFilterOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
+class _CustomerSheet extends StatelessWidget {
+  const _CustomerSheet({
+    required this.customer,
+    required this.onMessage,
+    required this.onAppointment,
+  });
+
+  final CreatorCustomer customer;
+  final VoidCallback onMessage;
+  final VoidCallback onAppointment;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.62,
+      minChildSize: 0.42,
+      maxChildSize: 0.86,
+      builder: (context, controller) {
         return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          decoration: const BoxDecoration(
+            color: ModernColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: ListView(
+            controller: controller,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: [
-              Text('Filtrer les clients', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 16),
-              _FilterOption(icon: Icons.people, label: 'Tous les clients', isSelected: true),
-              const Divider(),
-              _FilterOption(icon: Icons.access_time, label: 'Clients récents', isSelected: false),
-              const Divider(),
-              _FilterOption(icon: Icons.loyalty, label: 'Clients fidèles', isSelected: false),
-              const Divider(),
-              _FilterOption(icon: Icons.not_interested, label: 'Clients inactifs', isSelected: false),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4A6FA5),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: ModernColors.line,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
-                child: const Text('Appliquer les filtres'),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                customer.name,
+                style: const TextStyle(
+                  color: ModernColors.ink,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                customer.email.isEmpty ? customer.phone : customer.email,
+                style: const TextStyle(color: ModernColors.inkSoft),
+              ),
+              const SizedBox(height: 18),
+              _DetailRow(label: 'Type', value: customer.typeLabel),
+              _DetailRow(
+                label: 'Rendez-vous',
+                value: '${customer.appointmentsCount}',
+              ),
+              _DetailRow(label: 'Commandes', value: '${customer.ordersCount}'),
+              _DetailRow(
+                label: 'Mensurations',
+                value: customer.hasMeasurements ? 'Partagées' : 'Non partagées',
+              ),
+              const SizedBox(height: 18),
+              AppButton(
+                label: 'Message',
+                onPressed: onMessage,
+                icon: Icons.chat_bubble_outline_rounded,
+                expand: true,
+              ),
+              const SizedBox(height: 10),
+              AppButton(
+                label: 'Créer RDV',
+                onPressed: onAppointment,
+                icon: Icons.event_available_rounded,
+                variant: AppButtonVariant.outline,
+                expand: true,
               ),
             ],
           ),
@@ -248,293 +578,93 @@ class _ClientsTabState extends State<ClientsTab> {
   }
 }
 
-class _ClientTile extends StatelessWidget {
-  final DocumentSnapshot client;
-  final UserModel currentUser;
-  final Timestamp? followedAt;
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
 
-  const _ClientTile({
-    required this.client,
-    required this.currentUser,
-    this.followedAt,
-  });
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    final clientData = client.data() as Map<String, dynamic>? ?? {};
-    final name = clientData['name'] ?? 'Nom inconnu';
-    final photoUrl = clientData['photoUrl'] ?? '';
-    final lastInteraction = clientData.containsKey('lastInteraction')
-        ? (clientData['lastInteraction'] as Timestamp?)?.toDate()
-        : null;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        leading: CircleAvatar(
-          radius: 24,
-          backgroundColor: const Color(0xFF4A6FA5).withOpacity(0.1),
-          backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-          child: photoUrl.isEmpty
-              ? Text(
-            name.isNotEmpty ? name[0] : '?',
-            style: TextStyle(
-              color: const Color(0xFF4A6FA5),
-              fontWeight: FontWeight.bold,
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: ModernColors.inkSoft),
             ),
-          )
-              : null,
-        ),
-        title: Text(
-          name,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
           ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (followedAt != null)
-              Text(
-                'Client depuis ${DateFormat('dd MMM yyyy').format(followedAt!.toDate())}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).primaryColor,
-                ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: const TextStyle(
+                color: ModernColors.ink,
+                fontWeight: FontWeight.w900,
               ),
-            if (lastInteraction != null)
-              Text(
-                'Dernier contact: ${DateFormat('dd/MM/yy').format(lastInteraction)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).hintColor,
-                ),
-              ),
-          ],
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF4A6FA5).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Text(
-            'CLIENT',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF4A6FA5),
             ),
           ),
-        ),
-        onTap: () => _showClientDetails(context, clientData, name, photoUrl),
+        ],
       ),
-    );
-  }
-
-  void _showClientDetails(BuildContext context, Map<String, dynamic> clientData, String name, String photoUrl) async {
-    final email = clientData['email'] ?? 'Email non renseigné';
-    final phone = clientData['phone'] ?? 'Non renseigné';
-    final city = clientData['city'] ?? 'Non renseignée';
-    final joinedDate = clientData['createdAt'] != null
-        ? (clientData['createdAt'] as Timestamp).toDate()
-        : null;
-
-    UserModel? clientUserModel;
-    try {
-      final clientDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(client.id)
-          .get();
-
-      if (clientDoc.exists) {
-        clientUserModel = UserModel.fromDocument(clientDoc);
-      }
-    } catch (e) {
-      debugPrint('Error loading client user: $e');
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.85,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SheetHandle(),
-                Center(
-                  child: CircleAvatar(
-                    radius: 50,
-                    backgroundColor: const Color(0xFF4A6FA5).withOpacity(0.1),
-                    backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-                    child: photoUrl.isEmpty
-                        ? Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : '?',
-                      style: TextStyle(
-                        color: const Color(0xFF4A6FA5),
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    )
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Center(
-                  child: Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Center(
-                  child: Text(
-                    email,
-                    style: TextStyle(
-                      color: Theme.of(context).hintColor,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4A6FA5).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'CLIENT',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF4A6FA5),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                DetailRow(icon: Icons.phone, label: 'Téléphone:', value: phone),
-                DetailRow(icon: Icons.location_on, label: 'Ville:', value: city),
-                if (followedAt != null)
-                  DetailRow(
-                    icon: Icons.calendar_today,
-                    label: 'Client depuis:',
-                    value: DateFormat('dd MMM yyyy').format(followedAt!.toDate()),
-                  ),
-                if (joinedDate != null)
-                  DetailRow(
-                    icon: Icons.person_add,
-                    label: 'Inscrit le:',
-                    value: DateFormat('dd/MM/yyyy').format(joinedDate),
-                  ),
-                const SizedBox(height: 32),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          if (clientUserModel != null) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ChatScreen(
-                                  utilisateurCourant: currentUser,
-                                  autreUtilisateur: clientUserModel!,
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                        icon: Icon(Icons.message, color: Theme.of(context).primaryColor),
-                        label: Text(
-                          'Message',
-                          style: TextStyle(color: Theme.of(context).primaryColor),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          side: BorderSide(color: Theme.of(context).primaryColor),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.pushNamed(
-                              context,
-                              '/add-appointment',
-                              arguments: {
-                                'clientId': client.id,
-                                'clientName': name,
-                                'clientPhoto': photoUrl,
-                              }
-                          );
-                        },
-                        icon: const Icon(Icons.calendar_today, color: Colors.white),
-                        label: const Text('RDV'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFE76F51),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }
 
-class _FilterOption extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isSelected;
-
-  const _FilterOption({
-    required this.label,
-    required this.icon,
-    required this.isSelected,
-  });
+class _LoadingClients extends StatelessWidget {
+  const _LoadingClients();
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, color: isSelected ? Theme.of(context).primaryColor : Theme.of(context).hintColor),
-      title: Text(
-        label,
-        style: TextStyle(
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          color: isSelected ? Theme.of(context).textTheme.bodyLarge?.color : Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.8),
+    return Column(
+      children: List.generate(
+        4,
+        (_) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Container(
+            height: 104,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+          ),
         ),
       ),
-      trailing: isSelected ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
-      onTap: () {},
+    );
+  }
+}
+
+class _ClientState extends StatelessWidget {
+  const _ClientState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppActionEmptyState(
+      icon: icon,
+      title: title,
+      message: message,
+      actionLabel: actionLabel,
+      onAction: onAction,
+      accent: ModernColors.creator,
     );
   }
 }

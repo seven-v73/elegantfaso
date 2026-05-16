@@ -13,8 +13,12 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'app/app.dart';
+import 'app/app_theme.dart';
+import 'app/routes.dart';
+import 'design/modern_design_system.dart';
 import 'core/utils/logger_utils.dart';
 import 'firebase_options.dart';
+import 'services/notifications/app_notification_service.dart';
 import '../splash/splash_screen.dart';
 
 enum InitializationState { pending, inProgress, completed, error }
@@ -58,35 +62,39 @@ class AppInitializer {
 
 // Configuration des notifications
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-FlutterLocalNotificationsPlugin();
+    FlutterLocalNotificationsPlugin();
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  LoggerUtils.setupLogger().d("Handling background message: ${message.messageId}");
+  await _ensureFirebaseInitialized();
+  LoggerUtils.setupLogger().d(
+    "Handling background message: ${message.messageId}",
+  );
   _showNotification(message);
 }
 
 void _showNotification(RemoteMessage message) async {
   final notification = message.notification;
-  final android = message.notification?.android;
+  final title = notification?.title ?? message.data['title']?.toString();
+  final body = notification?.body ?? message.data['body']?.toString();
+  if ((title ?? '').isEmpty && (body ?? '').isEmpty) return;
 
   // Configuration pour Android
   const AndroidNotificationDetails androidPlatformChannelSpecifics =
-  AndroidNotificationDetails(
-    'high_importance_channel',
-    'Notifications importantes',
-    importance: Importance.max,
-    priority: Priority.high,
-    showWhen: false,
-  );
+      AndroidNotificationDetails(
+        'high_importance_channel',
+        'Notifications importantes',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: false,
+      );
 
   // Configuration pour iOS
   const DarwinNotificationDetails darwinPlatformChannelSpecifics =
-  DarwinNotificationDetails(
-    presentAlert: true,
-    presentBadge: true,
-    presentSound: true,
-  );
+      DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
 
   final NotificationDetails platformChannelSpecifics = NotificationDetails(
     android: androidPlatformChannelSpecifics,
@@ -94,11 +102,11 @@ void _showNotification(RemoteMessage message) async {
   );
 
   await flutterLocalNotificationsPlugin.show(
-    0,
-    notification?.title,
-    notification?.body,
+    DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    title,
+    body,
     platformChannelSpecifics,
-    payload: message.data['type'] ?? 'general',
+    payload: message.data['route'] ?? message.data['type'] ?? 'general',
   );
 }
 
@@ -106,72 +114,90 @@ Future<void> _initializeFirebaseMessaging(Logger logger) async {
   try {
     // Configuration des notifications locales
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@mipmap/ic_launcher');
 
     // CORRECTION: Nouvelle configuration iOS sans onDidReceiveLocalNotification
     final DarwinInitializationSettings initializationSettingsDarwin =
-    DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-      // Le callback a été déplacé dans l'initialisation principale
-    );
+        DarwinInitializationSettings(
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
+          // Le callback a été déplacé dans l'initialisation principale
+        );
 
-    final InitializationSettings initializationSettings = InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsDarwin,
-    );
+    final InitializationSettings initializationSettings =
+        InitializationSettings(
+          android: initializationSettingsAndroid,
+          iOS: initializationSettingsDarwin,
+        );
 
     // CORRECTION: Utilisation de onDidReceiveNotificationResponse pour gérer les interactions
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         logger.d('Notification cliquée: ${response.payload}');
+        _openNotificationPayload(response.payload);
       },
     );
 
     // Configuration de Firebase Messaging
     final FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-    // Demande de permissions
-    NotificationSettings settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
+    if (Platform.isIOS) {
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
 
-    logger.d('Statut des permissions: ${settings.authorizationStatus}');
+      logger.d('Statut des permissions: ${settings.authorizationStatus}');
+    } else {
+      logger.d(
+        'Demande de permission notifications ignorée au démarrage Android',
+      );
+    }
 
     // Gestion des messages
     FirebaseMessaging.onMessage.listen(_showNotification);
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       logger.d('Notification ouverte: ${message.data}');
+      _openNotificationPayload(
+        message.data['route']?.toString() ?? message.data['type']?.toString(),
+      );
     });
 
     // Handler pour les messages en arrière-plan
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Récupération du token FCM
-    String? token = await messaging.getToken();
-    logger.d("FCM Token: $token");
+    final notificationService = AppNotificationService();
+    notificationService.bindTokenRefresh();
+    await notificationService.syncDeviceToken();
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        notificationService.syncDeviceToken(userId: user.uid);
+      }
+    });
 
-    // Enregistrement du token dans Firestore
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null && token != null) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .update({
-        'fcmTokens': FieldValue.arrayUnion([token]),
-        'lastTokenUpdate': FieldValue.serverTimestamp(),
-      });
-    }
-
-    logger.i('✅ Firebase Messaging initialisé');
+    logger.i('Firebase Messaging initialisé');
   } catch (e, stackTrace) {
-    logger.e('❌ Erreur Firebase Messaging', error: e, stackTrace: stackTrace);
+    logger.e('Erreur Firebase Messaging', error: e, stackTrace: stackTrace);
     rethrow;
+  }
+}
+
+void _openNotificationPayload(String? payload) {
+  if (payload == null || payload.isEmpty) return;
+  final navigator = AppRoutes.navigatorKey.currentState;
+  if (navigator == null) return;
+
+  if (payload.startsWith('/')) {
+    navigator.pushNamed(payload);
+    return;
+  }
+
+  if (payload == 'message' || payload == 'general') {
+    navigator.pushNamed(AppRoutes.notifications);
   }
 }
 
@@ -192,9 +218,12 @@ Future<void> main() async {
 
   // Configuration globale des erreurs
   FlutterError.onError = (details) {
+    FlutterError.presentError(details);
     final logger = LoggerUtils.setupLogger();
     logger.e('Flutter Error: ${details.exception}', stackTrace: details.stack);
   };
+
+  _configureRuntimePerformance();
 
   runApp(const MyInitialApp());
 }
@@ -208,7 +237,7 @@ class MyInitialApp extends StatefulWidget {
 
 class _MyInitialAppState extends State<MyInitialApp> {
   Timer? _splashTimer;
-  bool _showSplash = true;
+  bool _minimumSplashElapsed = false;
   bool _initializationAttempted = false;
 
   @override
@@ -225,8 +254,10 @@ class _MyInitialAppState extends State<MyInitialApp> {
   }
 
   void _startSplashTimer() {
-    _splashTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _showSplash = false);
+    _splashTimer?.cancel();
+    _minimumSplashElapsed = false;
+    _splashTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _minimumSplashElapsed = true);
     });
   }
 
@@ -244,7 +275,7 @@ class _MyInitialAppState extends State<MyInitialApp> {
 
   @override
   Widget build(BuildContext context) {
-    if (AppInitializer.isInitialized && !_showSplash) {
+    if (AppInitializer.isInitialized && _minimumSplashElapsed) {
       return const MyApp();
     }
 
@@ -253,7 +284,7 @@ class _MyInitialAppState extends State<MyInitialApp> {
       InitializationState.inProgress => _buildSplashApp(),
 
       InitializationState.completed =>
-      _showSplash ? _buildSplashApp() : const MyApp(),
+        _minimumSplashElapsed ? const MyApp() : _buildSplashApp(),
 
       InitializationState.error => InitializationErrorApp(
         error: AppInitializer.error ?? 'Erreur inconnue',
@@ -266,21 +297,18 @@ class _MyInitialAppState extends State<MyInitialApp> {
     AppInitializer.reset();
     _initializationAttempted = false;
     _startSplashTimer();
-    setState(() => _showSplash = true);
+    setState(() {});
     _initializeApplication();
   }
 
   Widget _buildSplashApp() {
     return MaterialApp(
-      title: 'ElegantFaso',
+      title: 'ElegantStyle',
       debugShowCheckedModeBanner: false,
       // ✨ AMÉLIORATION: Force le mode jour pour l'écran de splash aussi
       themeMode: ThemeMode.light,
-      theme: ThemeData(
-        brightness: Brightness.light,
-        useMaterial3: true,
-      ),
-      home: const SplashScreen(),
+      theme: AppTheme.lightTheme,
+      home: const SplashScreen(enableNavigation: false),
     );
   }
 }
@@ -289,27 +317,12 @@ class _MyInitialAppState extends State<MyInitialApp> {
 class LightThemeWrapper extends StatelessWidget {
   final Widget child;
 
-  const LightThemeWrapper({
-    super.key,
-    required this.child,
-  });
+  const LightThemeWrapper({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Theme(
-      data: ThemeData.light().copyWith(
-        // Configuration personnalisée pour votre app
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        brightness: Brightness.light,
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
-          iconTheme: IconThemeData(color: Colors.black),
-        ),
-        scaffoldBackgroundColor: Colors.white,
-      ),
+      data: AppTheme.lightTheme.copyWith(brightness: Brightness.light),
       child: child,
     );
   }
@@ -334,17 +347,22 @@ Future<void> _initializeApp() async {
       _initializeFirebase(logger),
     ]).timeout(const Duration(seconds: 20));
 
-    // Initialisation des notifications Firebase
-    await _initializeFirebaseMessaging(logger);
+    if (kDebugMode && Platform.isAndroid) {
+      logger.d(
+        'Firebase Messaging ignoré en debug Android pour alléger le démarrage',
+      );
+    } else {
+      await _initializeFirebaseMessaging(logger);
+    }
 
     // Diagnostic léger en production, complet en debug
     if (kDebugMode) {
       await _runBasicDiagnostics(logger);
     }
 
-    logger.i('✅ Application initialisée avec succès');
+    logger.i('Application initialisée avec succès');
   } catch (e, stackTrace) {
-    logger.e('❌ Échec de l\'initialisation', error: e, stackTrace: stackTrace);
+    logger.e('Échec de l\'initialisation', error: e, stackTrace: stackTrace);
     rethrow;
   }
 }
@@ -364,22 +382,96 @@ void _configureSystemTheme() {
   );
 }
 
+void _configureRuntimePerformance() {
+  final cache = PaintingBinding.instance.imageCache;
+  cache.maximumSize = 350;
+  cache.maximumSizeBytes = 80 << 20;
+}
+
 Future<void> _loadEnvironmentVariables(Logger logger) async {
+  var loadedFromDotenv = false;
   try {
-    await dotenv.load(fileName: ".env");
-
-    // Vérification des variables critiques uniquement
-    const requiredVars = ['GEMINI_API_KEY', 'STABILITY_API_KEY', 'SERPAPI_KEY'];
-    final missingVars = requiredVars.where((varName) => dotenv.env[varName] == null).toList();
-
-    if (missingVars.isNotEmpty) {
-      throw MissingEnvVariablesException(missingVars);
+    if (!kReleaseMode) {
+      await dotenv.load(fileName: ".env");
+      loadedFromDotenv = true;
     }
-
-    logger.i('✅ Variables d\'environnement chargées');
   } catch (e) {
-    logger.e('❌ Erreur chargement .env: $e');
-    rethrow;
+    dotenv.testLoad();
+    logger.w('Fichier .env local indisponible. Fallbacks actifs.');
+  }
+
+  if (!dotenv.isInitialized) {
+    dotenv.testLoad();
+  }
+
+  _applyCompileTimeEnvironment();
+
+  const recommendedVars = [
+    'GEMINI_API_KEY',
+    'GEMINI_MODEL',
+    'GEMINI_FALLBACK_MODELS',
+    'STABILITY_API_KEY',
+    'SERPAPI_KEY',
+  ];
+  final missingVars =
+      recommendedVars
+          .where((varName) => (dotenv.env[varName] ?? '').trim().isEmpty)
+          .toList();
+
+  if (missingVars.isNotEmpty) {
+    logger.w(
+      'Variables externes absentes: ${missingVars.join(', ')}. '
+      'Les fallbacks locaux resteront actifs.',
+    );
+  }
+
+  logger.i(
+    loadedFromDotenv
+        ? 'Configuration locale chargée'
+        : 'Configuration compile-time/fallback chargée',
+  );
+}
+
+void _applyCompileTimeEnvironment() {
+  const compileTimeValues = <String, String>{
+    'GEMINI_API_KEY': String.fromEnvironment('GEMINI_API_KEY'),
+    'GEMINI_MODEL': String.fromEnvironment('GEMINI_MODEL'),
+    'GEMINI_FALLBACK_MODELS': String.fromEnvironment('GEMINI_FALLBACK_MODELS'),
+    'OPENAI_API_KEY': String.fromEnvironment('OPENAI_API_KEY'),
+    'OPENAI_MODEL': String.fromEnvironment('OPENAI_MODEL'),
+    'OPENAI_FALLBACK_MODELS': String.fromEnvironment('OPENAI_FALLBACK_MODELS'),
+    'STABILITY_API_KEY': String.fromEnvironment('STABILITY_API_KEY'),
+    'SERPAPI_KEY': String.fromEnvironment('SERPAPI_KEY'),
+    'YOUTUBE_API_KEY': String.fromEnvironment('YOUTUBE_API_KEY'),
+    'REPLICATE_API_KEY': String.fromEnvironment('REPLICATE_API_KEY'),
+    'SEGMIND_API_KEY': String.fromEnvironment('SEGMIND_API_KEY'),
+    'CLOUDINARY_CLOUD_NAME': String.fromEnvironment('CLOUDINARY_CLOUD_NAME'),
+    'CLOUDINARY_UPLOAD_PRESET': String.fromEnvironment(
+      'CLOUDINARY_UPLOAD_PRESET',
+    ),
+    'CLOUDINARY_IMAGE_UPLOAD_PRESET': String.fromEnvironment(
+      'CLOUDINARY_IMAGE_UPLOAD_PRESET',
+    ),
+    'CLOUDINARY_VIDEO_UPLOAD_PRESET': String.fromEnvironment(
+      'CLOUDINARY_VIDEO_UPLOAD_PRESET',
+    ),
+    'CLOUDINARY_FILE_UPLOAD_PRESET': String.fromEnvironment(
+      'CLOUDINARY_FILE_UPLOAD_PRESET',
+    ),
+    'CLOUDINARY_FOLDER_ROOT': String.fromEnvironment('CLOUDINARY_FOLDER_ROOT'),
+    'ENABLE_DEFAULT_ADMIN_BOOTSTRAP': String.fromEnvironment(
+      'ENABLE_DEFAULT_ADMIN_BOOTSTRAP',
+    ),
+    'DEFAULT_ADMIN_EMAIL': String.fromEnvironment('DEFAULT_ADMIN_EMAIL'),
+    'DEFAULT_ADMIN_PASSWORD': String.fromEnvironment('DEFAULT_ADMIN_PASSWORD'),
+    'DEFAULT_ADMIN_NAME': String.fromEnvironment('DEFAULT_ADMIN_NAME'),
+  };
+
+  for (final entry in compileTimeValues.entries) {
+    final value = entry.value.trim();
+    if (value.isNotEmpty) {
+      dotenv.env[entry.key] = value;
+    }
   }
 }
 
@@ -388,26 +480,45 @@ Future<void> _initializeLocalization(Logger logger) async {
     final locale = WidgetsBinding.instance.platformDispatcher.locales.first;
     final localeCode = '${locale.languageCode}_${locale.countryCode}';
     await initializeDateFormatting(localeCode, null);
-    logger.i('✅ Localisation: $localeCode');
+    logger.i('Localisation: $localeCode');
   } catch (e) {
-    logger.w('⚠️ Localisation par défaut utilisée');
+    logger.w('Localisation par défaut utilisée');
     await initializeDateFormatting('fr_FR', null);
   }
 }
 
 Future<void> _initializeFirebase(Logger logger) async {
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    final app = await _ensureFirebaseInitialized(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
 
     // Configuration Firestore optimisée
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      cacheSizeBytes: 100 * 1024 * 1024,
     );
 
-    logger.i('✅ Firebase initialisé');
+    logger.i('Firebase initialisé: ${app.options.projectId}');
   } catch (e) {
-    logger.e('❌ Erreur Firebase: $e');
+    logger.e('Erreur Firebase: $e');
+    rethrow;
+  }
+}
+
+Future<FirebaseApp> _ensureFirebaseInitialized({
+  FirebaseOptions? options,
+}) async {
+  if (Firebase.apps.isNotEmpty) {
+    return Firebase.app();
+  }
+
+  try {
+    return await Firebase.initializeApp(options: options);
+  } on FirebaseException catch (e) {
+    if (e.code == 'duplicate-app') {
+      return Firebase.app();
+    }
     rethrow;
   }
 }
@@ -448,13 +559,18 @@ Future<void> _checkFirebaseConnectivity(Logger logger) async {
 Future<void> _checkNotificationPermissions(Logger logger) async {
   try {
     if (Platform.isIOS) {
-      final settings = await FirebaseMessaging.instance.getNotificationSettings();
-      logger.d('Permissions notifications iOS: ${settings.authorizationStatus}');
+      final settings =
+          await FirebaseMessaging.instance.getNotificationSettings();
+      logger.d(
+        'Permissions notifications iOS: ${settings.authorizationStatus}',
+      );
     } else if (Platform.isAndroid) {
-      final granted = await flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-          ?.areNotificationsEnabled();
+      final granted =
+          await flutterLocalNotificationsPlugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >()
+              ?.areNotificationsEnabled();
       logger.d('Notifications Android activées: $granted');
     }
   } catch (e) {
@@ -477,83 +593,89 @@ class InitializationErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ElegantFaso - Erreur',
+      title: 'ElegantStyle - Erreur',
       debugShowCheckedModeBanner: false,
       // ✨ AMÉLIORATION: Force le mode jour même pour les erreurs
       themeMode: ThemeMode.light,
-      theme: ThemeData(
-        brightness: Brightness.light,
-        useMaterial3: true,
-      ),
-      home: LightThemeWrapper(
-        child: Scaffold(
-          backgroundColor: Colors.white,
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 80,
-                    color: Colors.red[300],
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Erreur d\'initialisation',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.red[700],
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red[200]!),
-                    ),
-                    child: Text(
-                      error,
-                      style: TextStyle(color: Colors.red[700], fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  ElevatedButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Réessayer'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red[600],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 12,
+      theme: AppTheme.lightTheme,
+      home: Builder(
+        builder: (context) {
+          return LightThemeWrapper(
+            child: Scaffold(
+              backgroundColor: ModernColors.canvas,
+              body: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 80,
+                        color: Colors.red[300],
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: error));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Erreur copiée'),
-                          backgroundColor: Colors.green,
+                      const SizedBox(height: 24),
+                      Text(
+                        'Erreur d\'initialisation',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.headlineMedium?.copyWith(
+                          color: Colors.red[700],
+                          fontWeight: FontWeight.w600,
                         ),
-                      );
-                    },
-                    child: const Text('Copier l\'erreur'),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.red[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red[200]!),
+                        ),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                            color: Colors.red[700],
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      ElevatedButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Réessayer'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: error));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Erreur copiée'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        },
+                        child: const Text('Copier l\'erreur'),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

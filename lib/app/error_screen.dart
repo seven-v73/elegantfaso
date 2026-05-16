@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 class ErrorScreen extends StatelessWidget {
   final String routeName;
 
-  const ErrorScreen({
-    Key? key,
-    required this.routeName,
-  }) : super(key: key);
+  const ErrorScreen({super.key, required this.routeName});
 
   @override
   Widget build(BuildContext context) {
@@ -22,27 +19,17 @@ class ErrorScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.error_outline,
-                size: 100,
-                color: Colors.red,
-              ),
+              const Icon(Icons.error_outline, size: 100, color: Colors.red),
               const SizedBox(height: 24),
               const Text(
                 'Une erreur est survenue',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
               Text(
                 'Route: $routeName',
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
-                ),
+                style: const TextStyle(fontSize: 16, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -50,7 +37,7 @@ class ErrorScreen extends StatelessWidget {
                 onPressed: () {
                   Navigator.of(context).pushNamedAndRemoveUntil(
                     '/',
-                        (Route<dynamic> route) => false,
+                    (Route<dynamic> route) => false,
                   );
                 },
                 icon: const Icon(Icons.home),
@@ -72,7 +59,7 @@ class ErrorScreen extends StatelessWidget {
                   } else {
                     Navigator.of(context).pushNamedAndRemoveUntil(
                       '/',
-                          (Route<dynamic> route) => false,
+                      (Route<dynamic> route) => false,
                     );
                   }
                 },

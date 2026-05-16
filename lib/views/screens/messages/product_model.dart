@@ -1,5 +1,3 @@
-import 'package:googleapis/androidpublisher/v3.dart';
-import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 
 class Produit {
@@ -43,9 +41,10 @@ class Produit {
       categories: List<String>.from(map['categories'] ?? []),
       noteMoyenne: (map['noteMoyenne'] as num?)?.toDouble(),
       nombreAvis: (map['nombreAvis'] as int?) ?? 0,
-      dateCreation: map['dateCreation'] != null
-        ? (map['dateCreation'] as firestore.Timestamp).toDate()
-          : DateTime.now(),
+      dateCreation:
+          map['dateCreation'] != null
+              ? (map['dateCreation'] as firestore.Timestamp).toDate()
+              : DateTime.now(),
       boutiqueId: map['boutiqueId']?.toString(),
     );
   }
